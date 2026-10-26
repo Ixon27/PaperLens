@@ -10,6 +10,8 @@
     "dev": "concurrently -k -n server,web \"tsx watch src/server/index.ts\" \"vite\"",
     "build": "vite build",
     "start": "NODE_ENV=production tsx src/server/index.ts",
+    "launch": "node scripts/launch.mjs",
+    "install:app": "npm run build && node scripts/install-macos-app.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
