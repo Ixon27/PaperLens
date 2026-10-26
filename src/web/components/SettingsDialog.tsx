@@ -1,10 +1,37 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { Settings } from '../types';
+import type { ModelCatalog, ModelChoice } from '../../shared/models';
 import { btnCls, Dialog, Field, inputCls, primaryBtnCls } from './Dialog';
 import { useToast } from './Toast';
 
 const EFFORTS = ['minimal', 'low', 'medium', 'high'];
+const EMPTY_CHOICES: ModelChoice[] = [];
+
+function ModelSelect({ label, value, models, loading, onChange, cliDefault = false }: {
+  label: string;
+  value: string;
+  models: ModelChoice[];
+  loading: boolean;
+  onChange(value: string): void;
+  cliDefault?: boolean;
+}) {
+  const selected = models.find(model => model.value === value);
+  const hint = loading ? '모델 목록을 불러오는 중…'
+    : selected ? [selected.description, selected.resolvedModel].filter(Boolean).join(' · ')
+    : value ? '현재 저장된 모델을 유지합니다. 목록에서 다른 모델을 선택할 수 있습니다.'
+    : 'CLI가 기본 모델을 결정합니다.';
+  return (
+    <Field label={label} hint={hint}>
+      <select aria-label={label} aria-busy={loading} className={`${inputCls} bg-white disabled:bg-stone-50 disabled:text-stone-500`}
+        value={value} disabled={loading || models.length === 0} onChange={event => onChange(event.target.value)}>
+        {cliDefault && <option value="">CLI 기본 모델</option>}
+        {value && !selected && <option value={value}>{value} (현재 설정)</option>}
+        {models.map(model => <option key={model.value} value={model.value}>{model.label}</option>)}
+      </select>
+    </Field>
+  );
+}
 
 export function SettingsDialog({ onClose }: { onClose(): void }) {
   const [s, setS] = useState<Settings | null>(null);
@@ -12,6 +39,9 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
   const [system, setSystem] = useState<{ dbPath: string; filesPath: string; vaultPath: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
+  const [models, setModels] = useState<ModelCatalog | null>(null);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const toast = useToast();
 
   const load = async () => {
@@ -28,8 +58,21 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
     }
   };
 
+  const loadModels = async () => {
+    setModelsLoading(true);
+    setModelsError(null);
+    try {
+      setModels(await api<ModelCatalog>('/api/models'));
+    } catch (e) {
+      setModelsError(e instanceof Error ? e.message : '모델 목록을 불러오지 못했습니다');
+    } finally {
+      setModelsLoading(false);
+    }
+  };
+
   useEffect(() => {
     void load();
+    void loadModels();
   }, []);
 
   const chooseVault = async () => {
@@ -99,17 +142,28 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
               ))}
             </div>
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Claude 빠른 모델 (quick)">
-              <input className={inputCls} placeholder="sonnet" value={s.claude.quickModel} onChange={(e) => setS({ ...s, claude: { ...s.claude, quickModel: e.target.value } })} />
-            </Field>
-            <Field label="Claude 깊은 모델 (heavy)">
-              <input className={inputCls} placeholder="opus" value={s.claude.heavyModel} onChange={(e) => setS({ ...s, claude: { ...s.claude, heavyModel: e.target.value } })} />
-            </Field>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-[11.5px] text-stone-500">CLI에서 모델 목록을 불러옵니다. 실제 사용 권한·한도는 계정에 따릅니다.</p>
+            <button className={`${btnCls} shrink-0`} disabled={modelsLoading} onClick={() => void loadModels()}>
+              {modelsLoading ? '모델 불러오는 중…' : '모델 목록 새로고침'}
+            </button>
           </div>
-          <Field label="Codex 모델" hint="비워 두면 Codex CLI의 기본 모델을 사용합니다.">
-            <input className={inputCls} placeholder="CLI 기본 모델" value={s.codex.model} onChange={(e) => setS({ ...s, codex: { ...s.codex, model: e.target.value } })} />
-          </Field>
+          {(modelsError || models?.claude.error || models?.codex.error) && (
+            <div role="alert" className="mb-3 space-y-1 text-[12px] text-amber-800">
+              {modelsError && <p>{modelsError}</p>}
+              {models?.claude.error && <p>{models.claude.error}</p>}
+              {models?.codex.error && <p>{models.codex.error}</p>}
+              <p>기존 설정은 유지됩니다. CLI 설치·로그인 후 모델 목록을 새로고침하세요.</p>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <ModelSelect label="Claude 빠른 모델 (quick)" value={s.claude.quickModel} models={models?.claude.models ?? EMPTY_CHOICES} loading={modelsLoading}
+              onChange={value => setS({ ...s, claude: { ...s.claude, quickModel: value } })} />
+            <ModelSelect label="Claude 깊은 모델 (heavy)" value={s.claude.heavyModel} models={models?.claude.models ?? EMPTY_CHOICES} loading={modelsLoading}
+              onChange={value => setS({ ...s, claude: { ...s.claude, heavyModel: value } })} />
+          </div>
+          <ModelSelect label="Codex 모델" value={s.codex.model} models={models?.codex.models ?? EMPTY_CHOICES} loading={modelsLoading} cliDefault
+            onChange={value => setS({ ...s, codex: { ...s.codex, model: value } })} />
           <div className="grid grid-cols-2 gap-3">
             <Field label="Codex 빠른 작업 effort">
               <select className={inputCls} value={s.codex.quickEffort} onChange={(e) => setS({ ...s, codex: { ...s.codex, quickEffort: e.target.value } })}>
