@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { Hono } from 'hono';
 import { PATHS } from '../config';
@@ -9,10 +9,17 @@ import { imagePath } from '../images';
 import { runLlm } from '../llm';
 import { abstractOrPageOne } from '../pdf/context';
 import { fill, loadPrompt } from '../prompts';
+import { getSettings } from '../settings';
 
 export const exportRoutes = new Hono();
 
-const PAPERS_DIR = () => join(PATHS.vault, '04_References', 'Papers');
+function requireVault(): string {
+  const vault = getSettings().vaultPath;
+  if (!vault) throw new HttpError(400, '설정에서 Obsidian 볼트 폴더를 선택하세요');
+  if (!existsSync(vault) || !statSync(vault).isDirectory()) throw new HttpError(400, 'Obsidian 볼트 폴더를 찾을 수 없습니다');
+  return vault;
+}
+
 const STOPWORDS: Record<string, true> = Object.fromEntries('a an the of in on for and to with by from via using'.split(' ').map((w) => [w, true]));
 const SKIP_DIRS: Record<string, true> = { '.git': true, '.obsidian': true, '.trash': true, MM: true };
 
@@ -71,6 +78,8 @@ function sanitizeTags(line: string): string[] {
 
 exportRoutes.post('/papers/:id/export/preview', async (c) => {
   const paper = requirePaper(c.req.param('id'));
+  const vault = requireVault();
+  const papersDir = join(vault, '04_References', 'Papers');
   const key = citekey({ authors: parseAuthors(paper), year: paper.year });
   let slug = '';
   let tags: string[] = [];
@@ -93,8 +102,8 @@ exportRoutes.post('/papers/:id/export/preview', async (c) => {
   const analysis = getArtifact(paper.id, 'analysis')?.content ?? '';
   const haystack = normalize(analysis + '\n' + paper.title);
   const notes = [
-    ...walkMd(join(PATHS.vault, '04_References', 'Notes'), true),
-    ...walkMd(PAPERS_DIR(), false),
+    ...walkMd(join(vault, '04_References', 'Notes'), true),
+    ...walkMd(papersDir, false),
   ];
   const seen = new Set<string>();
   const candidates: { name: string; needle: string }[] = [];
@@ -111,7 +120,7 @@ exportRoutes.post('/papers/:id/export/preview', async (c) => {
     filename,
     tags,
     relatedSuggestions: candidates.slice(0, 10).map((x) => x.name),
-    exists: existsSync(join(PAPERS_DIR(), filename)),
+    exists: existsSync(join(papersDir, filename)),
     hasAnalysis: !!analysis.trim(),
   });
 });
@@ -127,14 +136,16 @@ interface HighlightRow {
 
 exportRoutes.post('/papers/:id/export', async (c) => {
   const paper = requirePaper(c.req.param('id'));
+  const vault = requireVault();
+  const papersDir = join(vault, '04_References', 'Papers');
   const body = await c.req.json<{ filename?: string; tags?: string[]; relatedNotes?: string[]; overwrite?: boolean }>();
   const filename = (body.filename ?? '').trim();
   if (!filename.endsWith('.md') || filename.length <= 3 || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
     throw new HttpError(400, '파일 이름은 .md 로 끝나야 하고 / 나 .. 를 포함할 수 없습니다');
   }
-  const target = join(PAPERS_DIR(), filename);
-  const clash = walkMd(PATHS.vault, true, SKIP_DIRS).find((f) => basename(f) === filename && f !== target);
-  if (clash) throw new HttpError(409, `볼트에 같은 이름의 노트가 이미 있습니다: ${relative(PATHS.vault, clash)}`);
+  const target = join(papersDir, filename);
+  const clash = walkMd(vault, true, SKIP_DIRS).find((f) => basename(f) === filename && f !== target);
+  if (clash) throw new HttpError(409, `볼트에 같은 이름의 노트가 이미 있습니다: ${relative(vault, clash)}`);
   if (existsSync(target) && !body.overwrite) throw new HttpError(409, '이미 있습니다 — 덮어쓰기를 체크하세요');
 
   const authors = parseAuthors(paper);
@@ -150,7 +161,7 @@ exportRoutes.post('/papers/:id/export', async (c) => {
   const rows = db
     .prepare('SELECT id,type,position,text,image_file,note FROM highlights WHERE paper_id=?')
     .all(paper.id) as unknown as HighlightRow[];
-  const attachDir = join(PATHS.vault, 'Attachments', 'paper-reader');
+  const attachDir = join(vault, 'Attachments', 'paper-reader');
   const copies: [string, string][] = [];
   const highlights: NoteHighlight[] = rows.map((h) => {
     const pos = JSON.parse(h.position) as { boundingRect?: { pageNumber?: number; y1?: number } };
@@ -185,12 +196,12 @@ exportRoutes.post('/papers/:id/export', async (c) => {
     tags: (body.tags ?? []).map((t) => t.trim()).filter(Boolean),
     analysis: art?.content ?? null,
     engine: art?.engine ?? null,
-    pdfPath: paper.pdf_file ? pdfVaultPath(paper.id, PATHS.pdfs, PATHS.vault) : null,
+    pdfPath: paper.pdf_file ? pdfVaultPath(paper.id, PATHS.pdfs, vault) : null,
     highlights,
     relatedNotes: (body.relatedNotes ?? []).map((r) => r.trim()).filter(Boolean),
   });
 
-  mkdirSync(PAPERS_DIR(), { recursive: true });
+  mkdirSync(papersDir, { recursive: true });
   writeFileSync(target, note, 'utf8');
   if (copies.length) mkdirSync(attachDir, { recursive: true });
   for (const [from, to] of copies) copyFileSync(from, to);

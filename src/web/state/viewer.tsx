@@ -33,7 +33,7 @@ const ViewerContext = createContext<ViewerState | null>(null);
 
 export const BLOCK_HIGHLIGHT_ID = '__block';
 
-/** Highlight covering a block's lines. pdftotext points (top-left origin) are already the lib's `Scaled` space. */
+/** Highlight covering a block's lines. Top-left PDF points are already the lib's `Scaled` space. */
 export function blockHighlight(b: BlockDto): Highlight {
   const rects = b.lines.map(([x1, y1, x2, y2]) => ({ x1, y1, x2, y2, width: b.pageW, height: b.pageH, pageNumber: b.page }));
   const boundingRect = {

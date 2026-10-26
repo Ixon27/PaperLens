@@ -1,20 +1,16 @@
-import { execFile } from 'node:child_process';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { nanoid } from 'nanoid';
-import { BIN, PATHS, POPPLER_MISSING } from '../config';
+import { PATHS } from '../config';
 import { db, getPaper, now, refreshFts, tx, type Author } from '../db';
 import { HttpError } from '../http-error';
 import { activeJob, startJob, type JobCtx } from '../jobs';
-import { extractBlocks } from '../pdf/extract';
+import { extractBlocks, type ExtractionResult } from '../pdf/extract';
 import * as arxiv from '../services/arxiv';
 import * as crossref from '../services/crossref';
 import { getBuffer } from '../services/http';
 import * as openalex from '../services/openalex';
 import * as unpaywall from '../services/unpaywall';
-
-const execFileP = promisify(execFile);
 
 export type ImportInput = { kind: 'doi'; doi: string } | { kind: 'arxiv'; id: string };
 
@@ -102,9 +98,9 @@ function splitName(display: string): Author {
 const pdfPath = (paperId: string) => join(PATHS.pdfs, `${paperId}.pdf`);
 
 /** Extract text blocks from the paper's PDF into `blocks`, `page_count` and FTS. */
-export async function ingestPdf(paperId: string, ctx: JobCtx): Promise<void> {
+export async function ingestPdf(paperId: string, ctx: JobCtx, extracted?: ExtractionResult): Promise<void> {
   ctx.progress(0.7, '텍스트 추출 중');
-  const { pageCount, blocks } = await extractBlocks(pdfPath(paperId));
+  const { pageCount, blocks } = extracted ?? await extractBlocks(pdfPath(paperId));
   tx(() => {
     db.prepare('DELETE FROM translations WHERE paper_id=?').run(paperId);
     db.prepare('DELETE FROM blocks WHERE paper_id=?').run(paperId);
@@ -144,7 +140,6 @@ export interface ImportResult {
 
 /** DOI / arXiv import: metadata synchronously (so the paper exists for navigation), PDF in a job. */
 export async function importFromInput(raw: string): Promise<ImportResult> {
-  if (!BIN.pdftotext) throw new HttpError(500, POPPLER_MISSING);
   const input = parseImportInput(raw);
   const doi = input.kind === 'doi' ? input.doi : `10.48550/arxiv.${input.id}`.toLowerCase();
   const existing = paperIdByDoi(doi);
@@ -213,31 +208,15 @@ export async function importFromInput(raw: string): Promise<ImportResult> {
   return { paperId, jobId };
 }
 
-async function pdfInfoTitle(file: string): Promise<string | null> {
-  if (!BIN.pdfinfo) return null;
-  try {
-    const { stdout } = await execFileP(BIN.pdfinfo, [file]);
-    const title = /^Title:\s*(.*)$/m.exec(stdout)?.[1]?.trim();
-    return title && title.length >= 15 ? title : null;
-  } catch {
-    return null;
-  }
-}
-
-async function firstPagesText(file: string): Promise<string> {
-  if (!BIN.pdftotext) throw new HttpError(500, POPPLER_MISSING);
-  const { stdout } = await execFileP(BIN.pdftotext, ['-f', '1', '-l', '2', file, '-'], { maxBuffer: 64 << 20 });
-  return stdout;
-}
-
 /** One uploaded PDF: detect DOI on pages 1–2 (duplicate check), create the paper, extract in a job. */
 export async function importUpload(fileName: string, data: Buffer): Promise<ImportResult & { name: string }> {
   if (data.subarray(0, 4).toString('latin1') !== '%PDF') throw new HttpError(400, `PDF 파일이 아닙니다: ${fileName}`);
   const tmp = join(PATHS.tmp, `upload-${nanoid()}.pdf`);
   writeFileSync(tmp, data);
   try {
-    const doi = findDoi(await firstPagesText(tmp));
-    const title = (await pdfInfoTitle(tmp)) ?? fileName.replace(/\.pdf$/i, '');
+    const extracted = await extractBlocks(tmp);
+    const doi = findDoi(extracted.blocks.filter((block) => block.page <= 2).map((block) => block.text).join('\n'));
+    const title = extracted.title ?? fileName.replace(/\.pdf$/i, '');
     const dup = doi ? paperIdByDoi(doi) : null;
     if (dup) {
       rmSync(tmp, { force: true });
@@ -257,7 +236,7 @@ export async function importUpload(fileName: string, data: Buffer): Promise<Impo
           ).run(m.title, JSON.stringify(m.authors ?? []), m.year ?? null, m.journal ?? null, m.volume ?? null, m.issue ?? null, m.pages ?? null, doi, m.openalex_id ?? null, m.pmid ?? null, m.pmcid ?? null, m.abstract ?? null, now(), paperId);
         }
       }
-      await ingestPdf(paperId, ctx);
+      await ingestPdf(paperId, ctx, extracted);
     });
     return { name: fileName, paperId, jobId };
   } catch (e) {
@@ -274,7 +253,6 @@ export function attachPdf(paperId: string, data: Buffer): string {
   const running = activeJob(paperId, 'import');
   if (running) return running.id;
   if (data.subarray(0, 4).toString('latin1') !== '%PDF') throw new HttpError(400, 'PDF 파일이 아닙니다');
-  if (!BIN.pdftotext) throw new HttpError(500, POPPLER_MISSING);
   writeFileSync(pdfPath(paperId), data);
   return startJob(paperId, 'import', (ctx) => ingestPdf(paperId, ctx));
 }

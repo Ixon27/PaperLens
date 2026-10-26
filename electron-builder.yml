@@ -1,0 +1,54 @@
+appId: io.github.ixon27.paper-reader
+productName: Paper Reader
+electronVersion: 45.0.0
+directories:
+  app: build-desktop/app
+  output: release
+  buildResources: build-assets
+files:
+  - package.json
+  - build-desktop/main.mjs
+  - build-desktop/backend.mjs
+  - build-desktop/preload.cjs
+  - dist/**/*
+  - prompts/*.md
+  - LICENSE
+  - node_modules/**/*
+asar: true
+asarUnpack:
+  - node_modules/@napi-rs/**/*.node
+npmRebuild: false
+nodeGypRebuild: false
+forceCodeSigning: false
+publish: null
+artifactName: Paper-Reader-${version}-${arch}.${ext}
+mac:
+  category: public.app-category.productivity
+  icon: build-assets/icon.icns
+  minimumSystemVersion: '13.0'
+  identity: '-'
+  hardenedRuntime: false
+  notarize: false
+  target:
+    - dmg
+    - zip
+  extendInfo:
+    NSHumanReadableCopyright: Copyright © 2026 Ixon27
+    NSAppTransportSecurity:
+      NSAllowsArbitraryLoads: false
+      NSAllowsLocalNetworking: true
+dmg:
+  title: Paper Reader
+  sign: false
+  filesystem: HFS+
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 140
+      y: 180
+      type: file
+    - x: 400
+      y: 180
+      type: link
+      path: /Applications

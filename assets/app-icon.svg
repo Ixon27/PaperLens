@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#245a76"/>
+      <stop offset="1" stop-color="#123b57"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e7eef2"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="204" fill="url(#tile)"/>
+  <path d="M300 226h330l130 130v418a58 58 0 0 1-58 58H300a58 58 0 0 1-58-58V284a58 58 0 0 1 58-58Z" fill="#062d44" opacity=".3" transform="translate(8 18)"/>
+  <path d="M300 208h330l130 130v418a58 58 0 0 1-58 58H300a58 58 0 0 1-58-58V266a58 58 0 0 1 58-58Z" fill="url(#paper)"/>
+  <path d="M630 208v90a40 40 0 0 0 40 40h90" fill="#a6c7d5"/>
+  <rect x="320" y="396" width="342" height="28" rx="14" fill="#345e76"/>
+  <rect x="320" y="460" width="270" height="23" rx="11.5" fill="#8ca7b6"/>
+  <rect x="320" y="518" width="342" height="23" rx="11.5" fill="#8ca7b6"/>
+  <rect x="309" y="580" width="364" height="54" rx="12" fill="#f3d67c"/>
+  <rect x="320" y="596" width="296" height="22" rx="11" fill="#8a692d"/>
+  <rect x="320" y="674" width="225" height="23" rx="11.5" fill="#8ca7b6"/>
+  <path d="M693 616h82v224l-41-29-41 29Z" fill="#63baa9"/>
+</svg>

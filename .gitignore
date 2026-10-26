@@ -1,4 +1,7 @@
 node_modules/
 dist/
+build-desktop/
+build-assets/
+release/
 .env
 .DS_Store

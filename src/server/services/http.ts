@@ -1,19 +1,20 @@
-import { EMAIL } from '../config';
-
-const UA = EMAIL ? `paper-reader/1.0 (mailto:${EMAIL})` : 'paper-reader/1.0';
+import { getSettings } from '../settings';
+import { setTimeout as delay } from 'node:timers/promises';
 const TIMEOUT_MS = 20_000;
 
 /** GET with UA, 20 s timeout and one retry on 429/5xx; null on 404. */
 async function get(url: string, accept: string): Promise<Response | null> {
+  const email = getSettings().contactEmail;
+  const ua = email ? `paper-reader/1.0 (mailto:${email})` : 'paper-reader/1.0';
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, {
-      headers: { 'User-Agent': UA, Accept: accept },
+      headers: { 'User-Agent': ua, Accept: accept },
       redirect: 'follow',
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (res.status === 404) return null;
     if ((res.status === 429 || res.status >= 500) && attempt === 0) {
-      await new Promise((r) => setTimeout(r, 2000));
+      await delay(2000);
       continue;
     }
     if (!res.ok) throw new Error(`${new URL(url).host} HTTP ${res.status}`);

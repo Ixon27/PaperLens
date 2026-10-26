@@ -1,23 +1,32 @@
 {
   "name": "paper-reader",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
+  "description": "A local-first macOS paper reader powered by your own Claude or Codex CLI.",
+  "productName": "Paper Reader",
+  "main": "build-desktop/main.mjs",
+  "author": "Ixon27",
+  "license": "MIT",
   "engines": {
-    "node": ">=25"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "concurrently -k -n server,web \"tsx watch src/server/index.ts\" \"vite\"",
     "build": "vite build",
     "start": "NODE_ENV=production tsx src/server/index.ts",
-    "launch": "node scripts/launch.mjs",
-    "install:app": "npm run build && node scripts/install-macos-app.mjs",
+    "build:desktop": "npm run build && node scripts/build-desktop.mjs",
+    "desktop": "npm run build:desktop && electron .",
+    "pack:mac": "npm run build:desktop && electron-builder --mac --dir",
+    "dist:mac": "npm run build:desktop && electron-builder --mac",
+    "install:app": "npm run pack:mac && node scripts/install-macos-app.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.1.3",
     "@hono/node-server": "^2.1.5",
+    "@napi-rs/canvas": "^0.1.100",
     "@xyflow/react": "^12.12.0",
     "hono": "^4.13.14",
     "katex": "^0.19.1",
@@ -39,6 +48,9 @@
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^6.1.2",
     "concurrently": "^10.0.6",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
     "typescript": "~5.9",

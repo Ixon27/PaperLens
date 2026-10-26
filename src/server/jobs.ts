@@ -39,6 +39,7 @@ interface LiveJob {
   text: string;
   listeners: Set<Listener>;
   abort: AbortController;
+  finished: Promise<void>;
 }
 
 const live = new Map<string, LiveJob>();
@@ -108,7 +109,8 @@ export function startJob(paperId: string, kind: JobKind, runner: (ctx: JobCtx) =
     row.created_at,
     row.updated_at,
   );
-  const job: LiveJob = { row, text: '', listeners: new Set(), abort: new AbortController() };
+  const finished = Promise.withResolvers<void>();
+  const job: LiveJob = { row, text: '', listeners: new Set(), abort: new AbortController(), finished: finished.promise };
   live.set(row.id, job);
 
   const ctx: JobCtx = {
@@ -153,6 +155,7 @@ export function startJob(paperId: string, kind: JobKind, runner: (ctx: JobCtx) =
     } finally {
       job.listeners.clear();
       setTimeout(() => live.delete(row.id), KEEP_FINISHED_MS).unref();
+      finished.resolve();
     }
   })();
   return row.id;
@@ -167,6 +170,17 @@ export function cancelJob(id: string): boolean {
   if (!job || (job.row.status !== 'running' && job.row.status !== 'queued')) return false;
   job.abort.abort();
   return true;
+}
+
+/** Abort active CLI work before the desktop backend exits; completed partial results stay in SQLite. */
+export async function cancelAllJobs(): Promise<void> {
+  const pending: Promise<void>[] = [];
+  for (const job of live.values()) {
+    if (job.row.status !== 'running' && job.row.status !== 'queued') continue;
+    pending.push(job.finished);
+    job.abort.abort();
+  }
+  await Promise.all(pending);
 }
 
 /**

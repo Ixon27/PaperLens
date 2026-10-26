@@ -16,10 +16,10 @@ export function runCodex(call: EngineCall): Promise<string> {
     '--sandbox', 'read-only',
     '--color', 'never',
     '-C', cwd,
-    '-m', settings.codex.model,
     '-c', `model_reasoning_effort="${effort}"`,
     '-o', outFile,
   ];
+  if (settings.codex.model.trim()) args.push('-m', settings.codex.model.trim());
   if (call.imagePath) args.push('-i', call.imagePath);
   args.push('-');
 

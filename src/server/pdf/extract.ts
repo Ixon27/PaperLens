@@ -1,103 +1,79 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { BIN, POPPLER_MISSING } from '../config';
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { basename, dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { markReferences, pageBlocks, type Block } from './layout';
 
-const execFileP = promisify(execFile);
+export type { Block, LineBox } from './layout';
 
-export type LineBox = [number, number, number, number];
-
-export interface Block {
-  idx: number;
-  page: number;
-  text: string;
-  /** [xMin, yMin, xMax, yMax] in PDF points, top-left origin. */
-  lines: LineBox[];
-  pageW: number;
-  pageH: number;
-  isRef: boolean;
+export interface ExtractionResult {
+  pageCount: number;
+  blocks: Block[];
+  /** Usable PDF metadata title; callers fall back to the uploaded filename. */
+  title: string | null;
 }
 
-const TOKEN_RE =
-  /<page width="([\d.]+)" height="([\d.]+)">|<\/page>|<block\b[^>]*>|<\/block>|<line xMin="([\d.-]+)" yMin="([\d.-]+)" xMax="([\d.-]+)" yMax="([\d.-]+)">|<\/line>|<word\b[^>]*>([\s\S]*?)<\/word>/g;
+const pdfjsRoot = dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
+// Electron utility processes are not auto-detected as Node by PDF.js 4.
+// Use its local in-process worker and file-backed font resources explicitly.
+GlobalWorkerOptions.workerSrc = pathToFileURL(join(pdfjsRoot, 'legacy/build/pdf.worker.mjs')).href;
 
-const decode = (s: string) =>
-  s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-
-/** Join a block's lines, repairing words hyphenated across line breaks. */
-export function joinLines(lines: string[]): string {
-  let out = '';
-  for (const line of lines) {
-    if (!line) continue;
-    if (!out) out = line;
-    else if (/[A-Za-z]-$/.test(out) && /^[a-z]/.test(line)) out = out.slice(0, -1) + line;
-    else if (out.endsWith('-')) out += line;
-    else out += ' ' + line;
-  }
-  return out;
+function resourcePath(directory: string, name: string): string {
+  if (!name || name !== basename(name) || name.includes('\\')) throw new Error('잘못된 PDF 글꼴 리소스 이름');
+  return join(pdfjsRoot, directory, name);
 }
 
-const REF_HEADING = /^\s*(\d+\.?\s*)?(references( and notes)?|literature cited|bibliography|참고문헌)\s*$/i;
-const REF_END = /^\s*(supplementary|appendix|acknowledg|figure legends)/i;
-
-/** Mark blocks after the last references heading until the first back-matter heading. */
-export function markReferences(blocks: Block[]): void {
-  let start = -1;
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    if (REF_HEADING.test(blocks[i].text)) {
-      start = i;
-      break;
-    }
-  }
-  if (start === -1) return;
-  for (let i = start + 1; i < blocks.length; i++) {
-    if (REF_END.test(blocks[i].text)) break;
-    blocks[i].isRef = true;
+class LocalCMapReader {
+  async fetch({ name }: { name: string }) {
+    return { cMapData: await readFile(resourcePath('cmaps', `${name}.bcmap`)), compressionType: 1 };
   }
 }
 
-/** Parse `pdftotext -bbox-layout` XHTML into paragraph blocks in reading order. */
-export function parseBboxLayout(xhtml: string): { pageCount: number; blocks: Block[] } {
-  const blocks: Block[] = [];
-  let page = 0;
-  let pageW = 0;
-  let pageH = 0;
-  let lineTexts: string[] = [];
-  let lineBoxes: LineBox[] = [];
-  let words: string[] = [];
-  let box: LineBox | null = null;
+class LocalStandardFonts {
+  async fetch({ filename }: { filename: string }) {
+    return readFile(resourcePath('standard_fonts', filename));
+  }
+}
 
-  for (const m of xhtml.matchAll(TOKEN_RE)) {
-    const tok = m[0];
-    if (m[1] !== undefined) {
-      page++;
-      pageW = parseFloat(m[1]);
-      pageH = parseFloat(m[2]);
-    } else if (tok.startsWith('<block')) {
-      lineTexts = [];
-      lineBoxes = [];
-    } else if (tok === '</block>') {
-      const text = joinLines(lineTexts).trim();
-      if (text) blocks.push({ idx: blocks.length, page, text, lines: lineBoxes, pageW, pageH, isRef: false });
-    } else if (m[3] !== undefined) {
-      words = [];
-      box = [parseFloat(m[3]), parseFloat(m[4]), parseFloat(m[5]), parseFloat(m[6])];
-    } else if (tok === '</line>') {
-      const text = words.join(' ').trim();
-      if (text && box) {
-        lineTexts.push(text);
-        lineBoxes.push(box);
+/** Parse once for metadata and all page text; no renderer or external program is needed. */
+export async function extractBlocks(pdfPath: string): Promise<ExtractionResult> {
+  const bytes = await readFile(pdfPath);
+  const loading = getDocument({
+    data: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+    useSystemFonts: true,
+    isEvalSupported: false,
+    disableFontFace: true,
+    isOffscreenCanvasSupported: false,
+    useWorkerFetch: false,
+    CMapReaderFactory: LocalCMapReader,
+    StandardFontDataFactory: LocalStandardFonts,
+  });
+  try {
+    const pdf = await loading.promise;
+    const blocks: Block[] = [];
+    for (let number = 1; number <= pdf.numPages; number++) {
+      const page = await pdf.getPage(number);
+      try {
+        // Unrotated PDF-point coordinates match the viewer's scaled-coordinate contract.
+        const viewport = page.getViewport({ scale: 1, rotation: 0 });
+        const content = await page.getTextContent();
+        blocks.push(...pageBlocks(number, viewport, content, blocks.length));
+      } finally {
+        page.cleanup();
       }
-      box = null;
-    } else if (m[7] !== undefined) {
-      words.push(decode(m[7]));
     }
+    markReferences(blocks);
+    let title: string | null = null;
+    try {
+      const { info, metadata } = await pdf.getMetadata();
+      const raw: unknown = 'Title' in info ? info.Title : metadata?.get('dc:title');
+      if (typeof raw === 'string' && raw.trim().length >= 15) title = raw.trim();
+    } catch {
+      // Broken/missing metadata must not discard otherwise readable page text.
+    }
+    return { pageCount: pdf.numPages, blocks, title };
+  } finally {
+    await loading.destroy();
   }
-  markReferences(blocks);
-  return { pageCount: page, blocks };
-}
-
-export async function extractBlocks(pdfPath: string): Promise<{ pageCount: number; blocks: Block[] }> {
-  if (!BIN.pdftotext) throw new Error(POPPLER_MISSING);
-  const { stdout } = await execFileP(BIN.pdftotext, ['-bbox-layout', pdfPath, '-'], { maxBuffer: 256 << 20 });
-  return parseBboxLayout(stdout);
 }

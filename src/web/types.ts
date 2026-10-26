@@ -104,6 +104,9 @@ export interface Settings {
   claude: { quickModel: string; heavyModel: string };
   codex: { model: string; quickEffort: string; heavyEffort: string };
   readerContext: string;
+  vaultPath: string | null;
+  contactEmail: string;
+  onboardingDone: boolean;
 }
 
 export type ResearchType = 'wetlab' | 'omics' | 'review' | 'clinical';
