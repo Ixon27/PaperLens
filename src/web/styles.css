@@ -1,0 +1,82 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Segoe UI', sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-stone-50 text-stone-900 antialiased;
+}
+
+/* Markdown body (analysis, chat) */
+.md {
+  @apply text-[14px] leading-relaxed break-words;
+}
+.md h1,
+.md h2,
+.md h3 {
+  @apply font-bold mt-5 mb-2;
+}
+.md h4 {
+  @apply text-[16px] font-bold mt-6 mb-2 pb-1 border-b border-stone-200;
+}
+.md h5 {
+  @apply text-[15px] font-semibold mt-4 mb-1.5;
+}
+.md h6 {
+  @apply text-[14px] font-semibold mt-3 mb-1 text-stone-700;
+}
+.md p {
+  @apply my-1.5;
+}
+.md ul {
+  @apply list-disc pl-5 my-1.5;
+}
+.md ol {
+  @apply list-decimal pl-5 my-1.5;
+}
+.md li {
+  @apply my-0.5;
+}
+.md blockquote {
+  @apply border-l-4 border-stone-300 pl-3 text-stone-600 my-2;
+}
+.md code {
+  @apply bg-stone-100 rounded px-1 text-[12.5px];
+}
+.md pre {
+  @apply bg-stone-100 rounded p-2 overflow-x-auto my-2;
+}
+.md pre code {
+  @apply bg-transparent p-0;
+}
+.md table {
+  @apply border-collapse my-2 text-[13px] block overflow-x-auto;
+}
+.md th,
+.md td {
+  @apply border border-stone-300 px-2 py-1 align-top;
+}
+.md th {
+  @apply bg-stone-100;
+}
+.md a {
+  @apply text-blue-700 underline;
+}
+.md .katex-display {
+  @apply overflow-x-auto overflow-y-hidden py-1;
+}
+
+/* PDF viewer: let the highlighter fill its pane */
+.pdf-pane .PdfHighlighter {
+  background-color: #e7e5e4;
+}
+.pdf-pane .PdfHighlighter__tip-container {
+  z-index: 20;
+}

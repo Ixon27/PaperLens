@@ -1,0 +1,227 @@
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { Hono } from 'hono';
+import { PATHS } from '../config';
+import { db, getArtifact, getPaper, isTranslatable, now, parseAuthors, refreshFts, type BlockRow, type PaperRow } from '../db';
+import { latestJobs, snapshotOf, type JobRow } from '../jobs';
+import * as openalex from '../services/openalex';
+import { HttpError } from '../http-error';
+import { attachPdf, importFromInput, importUpload, normalizeDoi, paperIdByDoi } from '../tasks/import';
+
+export const papers = new Hono();
+
+export function paperStatus(paperId: string) {
+  const blocks = db.prepare('SELECT is_ref, text FROM blocks WHERE paper_id=?').all(paperId) as Pick<BlockRow, 'is_ref' | 'text'>[];
+  const done = (db.prepare('SELECT COUNT(*) AS n FROM translations WHERE paper_id=?').get(paperId) as { n: number }).n;
+  const kinds = new Set(
+    (db.prepare('SELECT kind FROM artifacts WHERE paper_id=?').all(paperId) as { kind: string }[]).map((r) => r.kind),
+  );
+  return {
+    analysis: kinds.has('analysis'),
+    mindmap: kinds.has('mindmap'),
+    translation: { done, total: blocks.filter(isTranslatable).length },
+    blockCount: blocks.length,
+  };
+}
+
+const jobDto = (j: JobRow | undefined | null) =>
+  j ? { id: j.id, kind: j.kind, status: j.status, progress: j.progress, message: j.message, error: j.error } : null;
+
+function paperDto(p: PaperRow) {
+  const jobs = latestJobs(p.id);
+  const running = jobs.find((j) => j.status === 'running' || j.status === 'queued');
+  const importJob = jobs.find((j) => j.kind === 'import');
+  return {
+    id: p.id,
+    title: p.title,
+    authors: parseAuthors(p),
+    year: p.year,
+    journal: p.journal,
+    volume: p.volume,
+    issue: p.issue,
+    pages: p.pages,
+    doi: p.doi,
+    arxivId: p.arxiv_id,
+    openalexId: p.openalex_id,
+    hasPdf: Boolean(p.pdf_file),
+    pageCount: p.page_count,
+    researchTypes: p.research_types ? (JSON.parse(p.research_types) as string[]) : null,
+    status: paperStatus(p.id),
+    // Running job first; otherwise the latest import job so its final message (e.g. "no OA PDF") stays visible.
+    job: jobDto(running ?? (importJob && !p.pdf_file ? importJob : null)),
+  };
+}
+
+papers.get('/papers', (c) => {
+  const q = c.req.query('q')?.trim();
+  let rows: PaperRow[];
+  const order = 'ORDER BY p.last_opened_at DESC NULLS LAST, p.created_at DESC';
+  if (q) {
+    const match = q
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((t) => `"${t.replace(/"/g, '""')}"*`)
+      .join(' AND ');
+    rows = db
+      .prepare(`SELECT p.* FROM papers p JOIN papers_fts f ON f.paper_id = p.id WHERE papers_fts MATCH ? ${order}`)
+      .all(match) as unknown as PaperRow[];
+  } else {
+    rows = db.prepare(`SELECT p.* FROM papers p ${order}`).all() as unknown as PaperRow[];
+  }
+  return c.json(rows.map(paperDto));
+});
+
+papers.post('/papers/import', async (c) => {
+  const { input } = await c.req.json<{ input?: string }>();
+  if (!input?.trim()) throw new HttpError(400, 'DOI나 arXiv 링크가 아닙니다');
+  return c.json(await importFromInput(input));
+});
+
+papers.post('/papers/upload', async (c) => {
+  const body = await c.req.parseBody({ all: true });
+  const raw = body['file'];
+  const files = (Array.isArray(raw) ? raw : [raw]).filter((f): f is File => f instanceof File);
+  if (!files.length) throw new HttpError(400, 'PDF 파일이 없습니다');
+  const results = [];
+  for (const f of files) {
+    try {
+      results.push(await importUpload(f.name, Buffer.from(await f.arrayBuffer())));
+    } catch (e) {
+      results.push({ name: f.name, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return c.json(results);
+});
+
+function requirePaper(id: string): PaperRow {
+  const p = getPaper(id);
+  if (!p) throw new HttpError(404, '논문을 찾을 수 없습니다');
+  return p;
+}
+
+papers.get('/papers/:id', (c) => {
+  const p = requirePaper(c.req.param('id'));
+  db.prepare('UPDATE papers SET last_opened_at=? WHERE id=?').run(now(), p.id);
+  return c.json({ ...paperDto(p), abstract: p.abstract });
+});
+
+papers.patch('/papers/:id', async (c) => {
+  const p = requirePaper(c.req.param('id'));
+  const body = await c.req.json<{
+    title?: string;
+    authors?: { family: string; given?: string }[];
+    year?: number | null;
+    journal?: string | null;
+    volume?: string | null;
+    issue?: string | null;
+    pages?: string | null;
+    doi?: string | null;
+  }>();
+  const doi = body.doi === undefined ? p.doi : body.doi?.trim() ? normalizeDoi(body.doi.trim().replace(/^https?:\/\/(dx\.)?doi\.org\//i, '')) : null;
+  if (doi && doi !== p.doi) {
+    const other = paperIdByDoi(doi);
+    if (other && other !== p.id) throw new HttpError(409, '다른 논문이 이미 이 DOI를 씁니다');
+  }
+  const pick = <T>(v: T | undefined, cur: T) => (v === undefined ? cur : v);
+  const blank = (v: string | null | undefined) => (typeof v === 'string' && !v.trim() ? null : v);
+  const title = body.title?.trim() || p.title;
+  const authors = body.authors
+    ? JSON.stringify(body.authors.filter((a) => a.family?.trim()).map((a) => ({ family: a.family.trim(), given: a.given?.trim() || undefined })))
+    : p.authors;
+  let ids = { openalex_id: p.openalex_id, pmid: p.pmid, pmcid: p.pmcid };
+  if (doi && doi !== p.doi && !p.openalex_id) {
+    const w = await openalex.getByDoi(doi).catch(() => null);
+    if (w) {
+      const s = openalex.toSummary(w);
+      ids = { openalex_id: s.openalexId, pmid: s.pmid, pmcid: s.pmcid };
+    }
+  }
+  db.prepare(
+    `UPDATE papers SET title=?, authors=?, year=?, journal=?, volume=?, issue=?, pages=?, doi=?, openalex_id=?, pmid=?, pmcid=?, updated_at=? WHERE id=?`,
+  ).run(
+    title,
+    authors,
+    pick(body.year, p.year),
+    pick(blank(body.journal), p.journal),
+    pick(blank(body.volume), p.volume),
+    pick(blank(body.issue), p.issue),
+    pick(blank(body.pages), p.pages),
+    doi,
+    ids.openalex_id,
+    ids.pmid,
+    ids.pmcid,
+    now(),
+    p.id,
+  );
+  refreshFts(p.id);
+  return c.json({ ...paperDto(getPaper(p.id)!), abstract: p.abstract });
+});
+
+papers.delete('/papers/:id', (c) => {
+  const p = requirePaper(c.req.param('id'));
+  const images = [
+    ...(db.prepare('SELECT image_file FROM highlights WHERE paper_id=? AND image_file IS NOT NULL').all(p.id) as { image_file: string }[]),
+    ...(db
+      .prepare(
+        'SELECT m.image_file FROM messages m JOIN threads t ON t.id=m.thread_id WHERE t.paper_id=? AND m.image_file IS NOT NULL',
+      )
+      .all(p.id) as { image_file: string }[]),
+  ];
+  for (const { image_file } of images) rmSync(join(PATHS.images, image_file), { force: true });
+  if (p.pdf_file) rmSync(join(PATHS.pdfs, p.pdf_file), { force: true });
+  db.prepare('DELETE FROM papers WHERE id=?').run(p.id);
+  db.prepare('DELETE FROM papers_fts WHERE paper_id=?').run(p.id);
+  return c.json({ ok: true });
+});
+
+papers.get('/papers/:id/pdf', (c) => {
+  const p = requirePaper(c.req.param('id'));
+  const file = p.pdf_file ? join(PATHS.pdfs, p.pdf_file) : null;
+  if (!file || !existsSync(file)) throw new HttpError(404, 'PDF가 없습니다');
+  return c.body(readFileSync(file), 200, { 'Content-Type': 'application/pdf', 'Cache-Control': 'no-cache' });
+});
+
+papers.post('/papers/:id/pdf', async (c) => {
+  const p = requirePaper(c.req.param('id'));
+  const body = await c.req.parseBody();
+  const f = body['file'];
+  if (!(f instanceof File)) throw new HttpError(400, 'PDF 파일이 없습니다');
+  return c.json({ jobId: attachPdf(p.id, Buffer.from(await f.arrayBuffer())) });
+});
+
+papers.get('/papers/:id/blocks', (c) => {
+  const p = requirePaper(c.req.param('id'));
+  const rows = db
+    .prepare(
+      `SELECT b.*, t.ko FROM blocks b LEFT JOIN translations t ON t.paper_id=b.paper_id AND t.block_idx=b.idx
+       WHERE b.paper_id=? ORDER BY b.idx`,
+    )
+    .all(p.id) as unknown as (BlockRow & { ko: string | null })[];
+  return c.json(
+    rows.map((b) => ({
+      idx: b.idx,
+      page: b.page,
+      text: b.text,
+      lines: JSON.parse(b.lines) as number[][],
+      pageW: b.page_w,
+      pageH: b.page_h,
+      isRef: Boolean(b.is_ref),
+      translatable: isTranslatable(b),
+      ko: b.ko,
+    })),
+  );
+});
+
+papers.get('/papers/:id/jobs', (c) => {
+  const p = requirePaper(c.req.param('id'));
+  return c.json(latestJobs(p.id).map((j) => snapshotOf(j)));
+});
+
+papers.get('/papers/:id/artifacts/:kind', (c) => {
+  const p = requirePaper(c.req.param('id'));
+  const a = getArtifact(p.id, c.req.param('kind'));
+  if (!a) throw new HttpError(404, '아직 없습니다');
+  return c.json({ content: a.content, meta: JSON.parse(a.meta) as unknown, engine: a.engine, updatedAt: a.updated_at });
+});
+
+export { requirePaper };
