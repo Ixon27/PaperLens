@@ -131,6 +131,16 @@ export interface Settings {
   vaultPath: string | null;
   contactEmail: string;
   onboardingDone: boolean;
+  updateCheck: boolean;
+  dismissedUpdate: string;
+}
+
+/** `GET /api/update` */
+export interface UpdateStatus {
+  current: string;
+  latest: string | null;
+  url: string | null;
+  available: boolean;
 }
 
 /** `GET /api/system` */

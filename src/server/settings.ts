@@ -24,6 +24,10 @@ export interface Settings {
   vaultPath: string | null;
   contactEmail: string;
   onboardingDone: boolean;
+  /** Look for a newer release at most once a day. */
+  updateCheck: boolean;
+  /** A release version the reader closed the notice for. */
+  dismissedUpdate: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -34,6 +38,8 @@ export const DEFAULT_SETTINGS: Settings = {
   vaultPath: PATHS.vault,
   contactEmail: EMAIL ?? '',
   onboardingDone: false,
+  updateCheck: true,
+  dismissedUpdate: '',
 };
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -74,7 +80,8 @@ export function saveSettings(patch: unknown): Settings {
     || typeof merged.codex?.quickModel !== 'string' || typeof merged.codex.heavyModel !== 'string'
     || typeof merged.claude?.quickModel !== 'string' || !merged.claude.quickModel.trim()
     || typeof merged.claude.heavyModel !== 'string' || !merged.claude.heavyModel.trim()
-    || typeof merged.onboardingDone !== 'boolean' || typeof merged.contactEmail !== 'string') {
+    || typeof merged.onboardingDone !== 'boolean' || typeof merged.contactEmail !== 'string'
+    || typeof merged.updateCheck !== 'boolean' || typeof merged.dismissedUpdate !== 'string') {
     throw new HttpError(400, '설정 값의 형식이 올바르지 않습니다');
   }
   // Efforts reach CLI arguments (Codex: `-c model_reasoning_effort="…"`), so only bare lowercase words pass.

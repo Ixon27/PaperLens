@@ -66,7 +66,7 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
     try {
       await api<Settings>('/api/settings', {
         method: 'PUT',
-        json: { readerContext: s.readerContext, vaultPath: s.vaultPath?.trim() || null, contactEmail: s.contactEmail.trim() },
+        json: { readerContext: s.readerContext, vaultPath: s.vaultPath?.trim() || null, contactEmail: s.contactEmail.trim(), updateCheck: s.updateCheck },
       });
       toast('설정을 저장했습니다');
       onClose();
@@ -153,6 +153,16 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
                 onChange={(e) => setS({ ...s, contactEmail: e.target.value })}
               />
             </SettingsRow>
+          </SettingsSection>
+          <SettingsSection title="업데이트">
+            <SettingsRow
+              label="새 버전 알림"
+              labelFor="settings-update"
+              aside={
+                <input id="settings-update" type="checkbox" checked={s.updateCheck} onChange={(e) => setS({ ...s, updateCheck: e.target.checked })} />
+              }
+              description="하루에 한 번 GitHub에서 최신 버전 번호만 확인합니다. 논문 내용은 보내지 않습니다."
+            />
           </SettingsSection>
           <SettingsSection title="저장 위치">
             <PathRow label="논문 데이터" path={system.dataDir} home={system.home} target="data" />
