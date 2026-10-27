@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { getArtifact, madeByOf } from '../db';
 import { HttpError } from '../http-error';
 import { libraryIdForDoi, getRelated } from '../tasks/related';
 import { loadReferences, startReferences, type RefEntry } from '../tasks/references';
@@ -13,11 +14,12 @@ citations.post('/papers/:id/references', (c) => {
   return c.json({ jobId: startReferences(p.id) });
 });
 
-/** Full references list (or `entries: null` while none is extracted yet). */
+/** Full references list (or `entries: null` while none is extracted yet) and who extracted it. */
 citations.get('/papers/:id/references', (c) => {
   const p = requirePaper(c.req.param('id'));
   const entries = loadReferences(p.id);
-  return c.json({ entries: entries ? withLibrary(entries) : null });
+  const artifact = getArtifact(p.id, 'references');
+  return c.json({ entries: entries ? withLibrary(entries) : null, by: artifact ? madeByOf(artifact) : null });
 });
 
 citations.get('/papers/:id/citation', (c) => {

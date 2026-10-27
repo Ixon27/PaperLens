@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useToast } from '../components/Toast';
 import { toAppHighlight } from '../pdf/PdfPane';
+import { ALT_KEY } from '../labels';
 import { usePaper } from '../state/paper';
 import { useViewer } from '../state/viewer';
-import { HIGHLIGHT_COLORS, type HighlightColor, type HighlightDto } from '../types';
+import { HIGHLIGHT_COLORS, HIGHLIGHT_NAMES, type HighlightColor, type HighlightDto } from '../types';
 
 export function HighlightsPanel() {
   const { highlights } = usePaper();
@@ -24,13 +25,13 @@ export function HighlightsPanel() {
   }, [sorted]);
 
   if (!highlights.length) {
-    return <div className="p-6 text-[13px] text-stone-500">PDF에서 글을 선택하거나 Alt+드래그로 영역을 고른 뒤 색을 누르면 하이라이트가 저장됩니다.</div>;
+    return <div className="p-6 text-[13px] text-fg-muted">PDF에서 글을 선택하거나 {ALT_KEY} 드래그로 영역을 고른 뒤 색을 누르면 하이라이트가 저장됩니다.</div>;
   }
   return (
     <div className="p-3">
       {groups.map(([page, list]) => (
         <section key={page} className="mb-4">
-          <h3 className="mb-1.5 text-[12px] font-bold text-stone-500">p.{page}</h3>
+          <h3 className="mb-1.5 text-[12px] font-bold text-fg-muted">p.{page}</h3>
           <ul className="flex flex-col gap-2">
             {list.map((h) => (
               <HighlightItem key={h.id} h={h} />
@@ -50,17 +51,17 @@ function HighlightItem({ h }: { h: HighlightDto }) {
   const fail = (e: unknown) => toast((e as Error).message, { tone: 'error' });
 
   return (
-    <li className="group rounded-md border border-stone-200 bg-white p-2">
+    <li className="group rounded-md border border-line bg-surface p-2">
       <button className="flex w-full items-start gap-2 text-left" onClick={() => utilsRef.current?.scrollToHighlight(toAppHighlight(h))} title="PDF에서 보기">
-        <span className="mt-1 h-3 w-3 shrink-0 rounded-full ring-1 ring-black/10" style={{ background: HIGHLIGHT_COLORS[h.color] }} />
+        <span className="mt-1 h-3 w-3 shrink-0 rounded-full ring-1 ring-fg/15" style={{ background: HIGHLIGHT_COLORS[h.color] }} />
         {h.type === 'area' && h.imageUrl ? (
-          <img src={h.imageUrl} alt="영역 하이라이트" className="max-h-40 max-w-full rounded border border-stone-200" />
+          <img src={h.imageUrl} alt="영역 하이라이트" className="max-h-40 max-w-full rounded border border-line" />
         ) : (
-          <span className="line-clamp-4 text-[13px] leading-snug text-stone-800">{h.text}</span>
+          <span className="line-clamp-4 text-[13px] leading-snug text-fg">{h.text}</span>
         )}
       </button>
       <textarea
-        className="mt-1.5 w-full resize-y rounded border border-transparent bg-stone-50 px-2 py-1 text-[12.5px] outline-none focus:border-stone-300 focus:bg-white"
+        className="mt-1.5 w-full resize-y rounded border border-transparent bg-sunken px-2 py-1 text-[12.5px] text-fg outline-none focus:border-line-strong focus:bg-surface"
         rows={note ? 2 : 1}
         placeholder="메모 추가…"
         value={note}
@@ -73,14 +74,14 @@ function HighlightItem({ h }: { h: HighlightDto }) {
         {(Object.keys(HIGHLIGHT_COLORS) as HighlightColor[]).map((c) => (
           <button
             key={c}
-            aria-label={`${c}로 바꾸기`}
-            className={`h-3.5 w-3.5 rounded-full ring-1 ring-black/10 ${h.color === c ? 'ring-2 ring-stone-700' : 'opacity-60 hover:opacity-100'}`}
+            aria-label={`${HIGHLIGHT_NAMES[c]}으로 바꾸기`}
+            className={`h-3.5 w-3.5 rounded-full ring-1 ring-fg/15 ${h.color === c ? 'ring-2 ring-inverse' : 'opacity-60 hover:opacity-100'}`}
             style={{ background: HIGHLIGHT_COLORS[c] }}
             onClick={() => void updateHighlight(h.id, { color: c }).catch(fail)}
           />
         ))}
         <button
-          className="ml-auto rounded px-1.5 text-[12px] text-stone-400 hover:bg-red-50 hover:text-red-600"
+          className="ml-auto rounded px-1.5 text-[12px] text-fg-dim hover:bg-danger-soft hover:text-danger"
           onClick={() => {
             if (confirm('이 하이라이트를 지울까요?')) void deleteHighlight(h.id).catch(fail);
           }}

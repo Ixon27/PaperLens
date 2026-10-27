@@ -56,7 +56,7 @@ export function ExportDialog({ onClose }: { onClose(): void }) {
           overwrite,
         },
       });
-      toast(`내보냄: ${res.path}`, { link: { label: 'Obsidian에서 열기', href: `obsidian://open?path=${encodeURIComponent(res.path)}` } });
+      toast('Obsidian에 내보냈습니다', { link: { label: 'Obsidian에서 열기', href: `obsidian://open?path=${encodeURIComponent(res.path)}` } });
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -65,9 +65,9 @@ export function ExportDialog({ onClose }: { onClose(): void }) {
     }
   }
 
-  const footer = (
+  const footer = (close: () => void) => (
     <>
-      <button className={btnCls} onClick={onClose}>
+      <button className={btnCls} onClick={close}>
         취소
       </button>
       <button className={primaryBtnCls} disabled={!preview || saving || !filename.trim()} onClick={() => void submit()}>
@@ -77,30 +77,30 @@ export function ExportDialog({ onClose }: { onClose(): void }) {
   );
 
   return (
-    <Dialog title="Obsidian으로 내보내기" onClose={onClose} footer={footer} width={560}>
+    <Dialog title="내보내기" onClose={onClose} footer={footer} width={560}>
       {!preview ? (
         error ? (
-          <p className="text-[13px] text-red-600">{error}</p>
+          <p className="text-[13px] text-danger">{error}</p>
         ) : (
-          <p className="flex items-center gap-2 text-[13px] text-stone-500">
-            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-stone-300 border-t-stone-700" />
+          <p className="flex items-center gap-2 text-[13px] text-fg-muted">
+            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-line-strong border-t-fg-muted" />
             파일 이름·태그 준비 중…
           </p>
         )
       ) : (
         <>
           {!preview.hasAnalysis && (
-            <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800">분석 없이 하이라이트만 내보냅니다</p>
+            <p className="mb-3 rounded-lg bg-warning-soft px-3 py-2 text-[12.5px] text-warning">분석 없이 하이라이트만 내보냅니다</p>
           )}
-          <Field label="파일 이름" hint="04_References/Papers/ 아래에 저장됩니다">
+          <Field label="파일 이름" hint="Obsidian 볼트의 04_References/Papers 폴더에 Markdown 노트로 저장됩니다">
             <input className={inputCls} value={filename} onChange={(e) => setFilename(e.target.value)} />
           </Field>
           <Field label="태그 (쉼표로 구분)">
             <input className={inputCls} value={tags} onChange={(e) => setTags(e.target.value)} />
           </Field>
           <div className="mb-3">
-            <span className="mb-1 block text-[12px] font-semibold text-stone-600">관련 노트</span>
-            {preview.relatedSuggestions.length === 0 && <p className="mb-1 text-[12px] text-stone-400">추천 없음</p>}
+            <span className="mb-1 block text-[12.5px] font-medium text-fg">관련 노트</span>
+            {preview.relatedSuggestions.length === 0 && <p className="mb-1 text-[12px] text-fg-dim">추천 없음</p>}
             {preview.relatedSuggestions.map((n) => (
               <label key={n} className="flex items-center gap-2 py-0.5 text-[13px]">
                 <input
@@ -119,7 +119,7 @@ export function ExportDialog({ onClose }: { onClose(): void }) {
               덮어쓰기
             </label>
           )}
-          {error && <p className="text-[13px] text-red-600">{error}</p>}
+          {error && <p className="text-[13px] text-danger">{error}</p>}
         </>
       )}
     </Dialog>

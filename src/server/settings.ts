@@ -7,10 +7,19 @@ import { HttpError } from './http-error';
 
 export type Engine = 'claude' | 'codex';
 
+/** Per-engine model + effort for 빠른 작업 (quick) and 깊은 작업 (heavy). Empty effort: no flag. */
+export interface EngineProfiles {
+  quickModel: string;
+  heavyModel: string;
+  quickEffort: string;
+  heavyEffort: string;
+}
+
 export interface Settings {
   engine: Engine;
-  claude: { quickModel: string; heavyModel: string };
-  codex: { model: string; quickEffort: string; heavyEffort: string };
+  claude: EngineProfiles;
+  /** Empty model: the Codex CLI default. */
+  codex: EngineProfiles;
   readerContext: string;
   vaultPath: string | null;
   contactEmail: string;
@@ -19,8 +28,8 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   engine: BIN.claude ? 'claude' : BIN.codex ? 'codex' : 'claude',
-  claude: { quickModel: 'sonnet', heavyModel: 'opus' },
-  codex: { model: '', quickEffort: 'low', heavyEffort: 'high' },
+  claude: { quickModel: 'sonnet', heavyModel: 'opus', quickEffort: '', heavyEffort: '' },
+  codex: { quickModel: '', heavyModel: '', quickEffort: 'low', heavyEffort: 'high' },
   readerContext: '연구 논문을 한국어로 읽는 연구자. 전공 용어는 원어로 유지하고, 낯선 방법론은 쉽게 설명한다.',
   vaultPath: PATHS.vault,
   contactEmail: EMAIL ?? '',
@@ -51,19 +60,27 @@ export function getSettings(): Settings {
       stored = {};
     }
   }
+  // Older settings stored one Codex model for both profiles.
+  if (isObject(stored) && isObject(stored.codex) && typeof stored.codex.model === 'string' && stored.codex.quickModel === undefined) {
+    stored = { ...stored, codex: { ...stored.codex, quickModel: stored.codex.model, heavyModel: stored.codex.model } };
+  }
   return deepMerge(DEFAULT_SETTINGS, stored);
 }
 
 export function saveSettings(patch: unknown): Settings {
   if (!isObject(patch)) throw new HttpError(400, '설정은 객체 형식이어야 합니다');
   const merged = deepMerge(getSettings(), patch);
-  if (typeof merged.readerContext !== 'string' || typeof merged.codex?.model !== 'string'
-    || typeof merged.codex.quickEffort !== 'string' || !merged.codex.quickEffort.trim()
-    || typeof merged.codex.heavyEffort !== 'string' || !merged.codex.heavyEffort.trim()
+  if (typeof merged.readerContext !== 'string'
+    || typeof merged.codex?.quickModel !== 'string' || typeof merged.codex.heavyModel !== 'string'
     || typeof merged.claude?.quickModel !== 'string' || !merged.claude.quickModel.trim()
     || typeof merged.claude.heavyModel !== 'string' || !merged.claude.heavyModel.trim()
     || typeof merged.onboardingDone !== 'boolean' || typeof merged.contactEmail !== 'string') {
     throw new HttpError(400, '설정 값의 형식이 올바르지 않습니다');
+  }
+  // Efforts reach CLI arguments (Codex: `-c model_reasoning_effort="…"`), so only bare lowercase words pass.
+  const efforts = [merged.claude.quickEffort, merged.claude.heavyEffort, merged.codex.quickEffort, merged.codex.heavyEffort];
+  if (!efforts.every((e) => typeof e === 'string' && /^[a-z]*$/.test(e))) {
+    throw new HttpError(400, 'AI 작업 수준 값이 올바르지 않습니다');
   }
   merged.contactEmail = merged.contactEmail.trim();
   if (merged.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(merged.contactEmail)) {

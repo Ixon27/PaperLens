@@ -1,29 +1,58 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, Route, Switch } from 'wouter';
+import { Moon, Settings as SettingsIcon, Sun } from 'lucide-react';
 import { api } from './api';
 import type { Settings } from './types';
+import { AiPicker } from './components/AiPicker';
+import { iconBtnCls } from './components/Dialog';
 import { OnboardingDialog } from './components/OnboardingDialog';
-import { EngineSwitch } from './components/EngineSwitch';
 import { SettingsDialog } from './components/SettingsDialog';
+import { isMac, SETTINGS_SHORTCUT } from './labels';
+import { toggleTheme, useResolvedTheme } from './state/theme';
 import { ToastProvider } from './components/Toast';
 import { Library } from './pages/Library';
 import { Workspace } from './pages/Workspace';
 
+function ThemeToggle() {
+  const dark = useResolvedTheme() === 'dark';
+  const label = dark ? '밝은 화면으로 전환' : '어두운 화면으로 전환';
+  return (
+    <button className={iconBtnCls} aria-label={label} title={label} onClick={toggleTheme}>
+      {dark ? <Sun size={16} /> : <Moon size={16} />}
+    </button>
+  );
+}
+
 function Header() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   useEffect(() => window.paperReaderDesktop?.onOpenSettings(() => setSettingsOpen(true)), []);
+  // The macOS app menu owns ⌘,; the Windows window has no menu bar, so the page handles Ctrl+,.
+  useEffect(() => {
+    if (!window.paperReaderDesktop || isMac) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key === ',') {
+        e.preventDefault();
+        setSettingsOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   return (
-    <header className="flex h-11 shrink-0 items-center gap-3 border-b border-stone-200 bg-white px-4">
-      <Link href="/" className="text-[15px] font-bold tracking-tight text-stone-900">
-        paper-reader
+    <header className="app-header app-drag relative z-40 flex h-11 shrink-0 items-center gap-2 border-b border-line bg-surface/80 px-3 backdrop-blur-md">
+      <Link href="/" className="text-[14px] font-semibold tracking-tight text-fg">
+        PaperLens
       </Link>
       <div className="flex-1" />
-      <EngineSwitch />
+      <AiPicker />
+      <ThemeToggle />
       <button
-        className="rounded-md border border-stone-300 px-2.5 py-1 text-[12px] hover:bg-stone-100"
+        className={iconBtnCls}
+        aria-label="설정"
+        title={window.paperReaderDesktop ? `설정 (${SETTINGS_SHORTCUT})` : '설정'}
         onClick={() => setSettingsOpen(true)}
       >
-        설정
+        <SettingsIcon size={16} />
       </button>
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
     </header>
@@ -48,7 +77,7 @@ export function App() {
     <ToastProvider>
       <div className="flex h-full flex-col">
         <Header />
-        {setupError && <div role="alert" className="border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">
+        {setupError && <div role="alert" className="border-b border-danger/30 bg-danger-soft px-4 py-2 text-[13px] text-danger">
           {setupError} <button className="ml-2 underline" onClick={() => void loadSetup()}>다시 시도</button>
         </div>}
         <main className="min-h-0 flex-1">
@@ -58,7 +87,7 @@ export function App() {
             </Route>
             <Route path="/paper/:id">{(params) => <Workspace key={params.id} id={params.id} />}</Route>
             <Route>
-              <div className="p-8 text-stone-500">없는 페이지입니다.</div>
+              <div className="p-8 text-fg-muted">없는 페이지입니다.</div>
             </Route>
           </Switch>
         </main>

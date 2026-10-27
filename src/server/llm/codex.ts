@@ -1,13 +1,13 @@
-import { spawn } from 'node:child_process';
+import { spawnCli } from './command';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EngineCall } from './index';
 
 /** codex exec has no streaming text output we rely on and no system-prompt flag. */
 export function runCodex(call: EngineCall): Promise<string> {
-  const { settings, profile, cwd } = call;
+  const { spec, cwd } = call;
   const outFile = join(cwd, 'out.txt');
-  const effort = profile === 'quick' ? settings.codex.quickEffort : settings.codex.heavyEffort;
+  const effort = spec.effort;
   const args = [
     'exec',
     '--ignore-user-config',
@@ -16,14 +16,15 @@ export function runCodex(call: EngineCall): Promise<string> {
     '--sandbox', 'read-only',
     '--color', 'never',
     '-C', cwd,
-    '-c', `model_reasoning_effort="${effort}"`,
     '-o', outFile,
   ];
-  if (settings.codex.model.trim()) args.push('-m', settings.codex.model.trim());
+  const model = spec.model.trim();
+  if (model) args.push('-m', model);
+  if (effort) args.push('-c', `model_reasoning_effort="${effort}"`);
   if (call.imagePath) args.push('-i', call.imagePath);
   args.push('-');
 
-  const child = spawn(call.bin, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawnCli(call.bin, args, { cwd });
   call.attach(child);
 
   const { promise, resolve, reject } = Promise.withResolvers<string>();

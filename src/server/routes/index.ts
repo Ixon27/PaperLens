@@ -8,6 +8,7 @@ import { mindmap } from './mindmap';
 import { openalexRoutes } from './openalex';
 import { papers } from './papers';
 import { settings } from './settings';
+import { terms } from './terms';
 import { threads } from './threads';
 import { translation } from './translation';
 
@@ -22,5 +23,6 @@ api.route('/', translation);
 api.route('/', analysis);
 api.route('/', mindmap);
 api.route('/', citations);
+api.route('/', terms);
 api.route('/', openalexRoutes);
 api.route('/', exportRoutes);

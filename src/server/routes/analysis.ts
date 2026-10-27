@@ -3,6 +3,7 @@ import { getPaper, type PaperRow } from '../db';
 import { HttpError } from '../http-error';
 import { startAnalysis } from '../tasks/analysis';
 import { classifyPaper, isResearchType, type ResearchType } from '../tasks/classify';
+import { startSummary } from '../tasks/summary';
 
 export const analysis = new Hono();
 
@@ -28,4 +29,9 @@ analysis.post('/papers/:id/analysis', async (c) => {
   const types: ResearchType[] = [...new Set(raw.filter(isResearchType))];
   if (!types.length || types.length !== raw.length) throw new HttpError(400, '연구 유형을 하나 이상 고르세요');
   return c.json({ jobId: startAnalysis(paper.id, types) });
+});
+
+analysis.post('/papers/:id/summary', (c) => {
+  const paper = requirePaper(c.req.param('id'));
+  return c.json({ jobId: startSummary(paper.id) });
 });

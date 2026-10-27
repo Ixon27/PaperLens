@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
+import { smallBtnCls, smallPrimaryBtnCls } from '../components/Dialog';
 import { JobBar } from '../components/JobBar';
+import { ModelBadge } from '../components/ModelBadge';
 import { LibraryButton, RefCard, useImportPaper, type RefEntryDto, type WorkSummaryDto } from '../pdf/CitationPopover';
 import { usePaper } from '../state/paper';
 import { useJob } from '../state/useJob';
+import type { MadeBy } from '../../shared/models';
 
 interface EpmcItemDto {
   title: string;
@@ -71,8 +74,8 @@ function fromEpmc(it: EpmcItemDto, i: number): RelatedRow {
 function RelatedItem({ row }: { row: RelatedRow }) {
   const imp = useImportPaper(row.inLibrary);
   return (
-    <li className="border-b border-stone-100 py-2 last:border-0">
-      <div className="text-[12.5px] font-medium leading-snug text-stone-800">
+    <li className="border-b border-line py-2 last:border-0">
+      <div className="text-[12.5px] font-medium leading-snug text-fg">
         {row.doi ? (
           <a className="hover:underline" href={`https://doi.org/${row.doi}`} target="_blank" rel="noreferrer">
             {row.title}
@@ -80,9 +83,9 @@ function RelatedItem({ row }: { row: RelatedRow }) {
         ) : (
           row.title
         )}
-        {row.oa && <span className="ml-1.5 rounded bg-emerald-100 px-1 py-px align-middle text-[10px] font-semibold text-emerald-700">OA</span>}
+        {row.oa && <span className="ml-1.5 rounded bg-success-soft px-1 py-px align-middle text-[10px] font-semibold text-success">무료 PDF</span>}
       </div>
-      <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-stone-500">
+      <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-fg-muted">
         {[row.authors, row.year, row.venue, `인용 ${row.citedBy}`].filter((x) => x !== null && x !== '').join(' · ')}
         <span className="ml-auto">
           <LibraryButton imp={imp} doi={row.doi} label="가져오기" />
@@ -95,9 +98,9 @@ function RelatedItem({ row }: { row: RelatedRow }) {
 function Group({ title, rows, failed }: { title: string; rows: RelatedRow[]; failed: boolean }) {
   return (
     <section className="mb-4">
-      <h4 className="mb-1 text-[12px] font-semibold text-stone-600">{title}</h4>
+      <h4 className="mb-1 text-[12px] font-semibold text-fg-muted">{title}</h4>
       {failed ? (
-        <div className="text-[12px] text-red-600">불러오지 못했습니다</div>
+        <div className="text-[12px] text-danger">불러오지 못했습니다</div>
       ) : rows.length ? (
         <ul>
           {rows.map((r) => (
@@ -105,7 +108,7 @@ function Group({ title, rows, failed }: { title: string; rows: RelatedRow[]; fai
           ))}
         </ul>
       ) : (
-        <div className="text-[12px] text-stone-400">없음</div>
+        <div className="text-[12px] text-fg-dim">없음</div>
       )}
     </section>
   );
@@ -140,32 +143,32 @@ function RelatedSection({ paperId }: { paperId: string }) {
   return (
     <div>
       <div className="mb-2 flex items-center gap-2">
-        <h3 className="text-[13px] font-semibold text-stone-800">관련 논문</h3>
-        {loading && <span className="text-[12px] text-stone-500">불러오는 중…</span>}
+        <h3 className="text-[13px] font-semibold text-fg">관련 논문</h3>
+        {loading && <span className="text-[12px] text-fg-muted">불러오는 중…</span>}
         <button
-          className="ml-auto rounded border border-stone-300 px-2 py-0.5 text-[12px] hover:bg-stone-100 disabled:opacity-50"
+          className={`ml-auto ${smallBtnCls}`}
           disabled={loading}
           onClick={() => void load(true)}
         >
           새로고침
         </button>
       </div>
-      {error && <div className="mb-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-[12.5px] text-red-700">{error}</div>}
+      {error && <div className="mb-2 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div>}
       {data && (
         <>
-          <Group title="OpenAlex 관련 논문" rows={data.related.map(fromOpenAlex)} failed={failed('related')} />
+          <Group title="비슷한 논문" rows={data.related.map(fromOpenAlex)} failed={failed('related')} />
           <Group title="최근 이 논문을 인용한 논문" rows={data.recentCiting.map(fromOpenAlex)} failed={failed('recentCiting')} />
           <Group title="많이 인용된 인용 논문" rows={data.topCiting.map(fromOpenAlex)} failed={failed('topCiting')} />
           {data.epmc ? (
             <Group
-              title={`Europe PMC 같은 주제 최신 (키워드: ${data.epmc.keywords.join(', ')})`}
+              title={`같은 주제의 최신 논문 · ${data.epmc.keywords.join(', ')}`}
               rows={data.epmc.items.map(fromEpmc)}
               failed={failed('epmc')}
             />
           ) : (
             <section className="mb-4">
-              <h4 className="mb-1 text-[12px] font-semibold text-stone-600">Europe PMC 같은 주제 최신</h4>
-              <div className="text-[12px] text-stone-400">{failed('epmc') ? '불러오지 못했습니다' : 'OpenAlex 키워드가 없어 검색하지 않았습니다'}</div>
+              <h4 className="mb-1 text-[12px] font-semibold text-fg-muted">같은 주제의 최신 논문</h4>
+              <div className="text-[12px] text-fg-dim">{failed('epmc') ? '불러오지 못했습니다' : '주제 키워드를 찾지 못해 검색하지 않았습니다'}</div>
             </section>
           )}
         </>
@@ -176,9 +179,11 @@ function RelatedSection({ paperId }: { paperId: string }) {
 
 function ReferencesSection({ paperId }: { paperId: string }) {
   const [entries, setEntries] = useState<RefEntryDto[] | null | undefined>(undefined);
+  const [by, setBy] = useState<MadeBy | null>(null);
   const load = useCallback(async () => {
-    const r = await api<{ entries: RefEntryDto[] | null }>(`/api/papers/${paperId}/references`);
+    const r = await api<{ entries: RefEntryDto[] | null; by: MadeBy | null }>(`/api/papers/${paperId}/references`);
     setEntries(r.entries);
+    setBy(r.by);
   }, [paperId]);
   const job = useJob('references', { onFinish: () => void load() });
 
@@ -193,14 +198,19 @@ function ReferencesSection({ paperId }: { paperId: string }) {
 
   return (
     <div className="mb-6">
-      <h3 className="mb-2 text-[13px] font-semibold text-stone-800">참고문헌{entries ? ` (${entries.length})` : ''}</h3>
+      <div className="mb-2 flex items-center gap-2">
+        <h3 className="text-[13px] font-semibold text-fg">참고문헌{entries ? ` (${entries.length})` : ''}</h3>
+        <span className="ml-auto min-w-0">
+          <ModelBadge by={by} />
+        </span>
+      </div>
       {entries === null && !job.running && (
-        <button className="mb-2 rounded bg-stone-800 px-3 py-1 text-[12.5px] text-white hover:bg-stone-700" onClick={() => void start()}>
+        <button className={`mb-2 ${smallPrimaryBtnCls}`} onClick={() => void start()}>
           참고문헌 추출
         </button>
       )}
       {entries === null && <JobBar job={job.job} onCancel={() => void job.cancel()} />}
-      {entries && entries.length === 0 && <div className="text-[12px] text-stone-400">추출된 참고문헌이 없습니다</div>}
+      {entries && entries.length === 0 && <div className="text-[12px] text-fg-dim">추출된 참고문헌이 없습니다</div>}
       {entries && entries.length > 0 && (
         <div className="flex flex-col gap-1.5">
           {entries.map((e) => (

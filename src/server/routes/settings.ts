@@ -1,4 +1,6 @@
 import { Hono } from 'hono';
+import { homedir } from 'node:os';
+import { dirname } from 'node:path';
 import { PATHS } from '../config';
 import { enginesAvailable } from '../llm/index';
 import { getModelCatalog } from '../llm/models';
@@ -16,4 +18,6 @@ settings.get('/system', (c) => c.json({
   filesPath: PATHS.files,
   dbPath: PATHS.db,
   vaultPath: getSettings().vaultPath,
+  home: homedir(),
+  dataDir: dirname(PATHS.db),
 }));

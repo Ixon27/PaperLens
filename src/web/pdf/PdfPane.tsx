@@ -1,13 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { PdfHighlighter, PdfLoader, type Highlight, type PdfHighlighterUtils, type PdfScaleValue } from 'react-pdf-highlighter-extended';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { Minus, Plus } from 'lucide-react';
+import type { PDFViewer } from 'pdfjs-dist/types/web/pdf_viewer';
+import { chipCls, iconBtnCls } from '../components/Dialog';
 import { usePaper } from '../state/paper';
-import { blockHighlight, useViewer } from '../state/viewer';
-import type { HighlightDto, HighlightPosition } from '../types';
+import { useSyncHover } from '../state/syncHover';
+import { useViewer } from '../state/viewer';
+import type { BlockDto, HighlightDto, HighlightPosition } from '../types';
 import { HighlightContainer, type AppHighlight } from './HighlightContainer';
 import { SelectionTip } from './SelectionTip';
 import { detectBareNumber, detectCitation, type CiteHit } from './citation';
 import { CitationPopover, type PopoverPos } from './CitationPopover';
+import { ExplainLayer } from './ExplainLayer';
+import { hitTest, rangesFor, showSync } from './syncHighlight';
+import { ALT_KEY } from '../labels';
 
 /** Nearest sibling text-layer span (pdf.js interleaves `<br>`s between lines). */
 function siblingSpan(el: Element, dir: 'prev' | 'next'): HTMLElement | null {
@@ -91,16 +98,86 @@ export function toAppHighlight(h: HighlightDto): AppHighlight {
 
 const clampScale = (s: number) => Math.min(3, Math.max(0.5, Math.round(s * 10) / 10));
 
+/** Keep sentence hover separate from the PDF viewer; never replace missing alignment with a whole-block highlight. */
+function SyncHoverBridge({ paneRef, enabled }: { paneRef: RefObject<HTMLDivElement | null>; enabled: boolean }) {
+  const { blocks } = usePaper();
+  const { hover, setHover, clearHover, current } = useSyncHover();
+
+  const itemIndex = useMemo(() => {
+    const map = new Map<string, { block: BlockDto; start: number; end: number }>();
+    for (const b of blocks ?? []) {
+      if (!b.ko || !b.koSentences?.length) continue;
+      for (const [page, item, start, end] of b.spans) map.set(`${page}:${item}`, { block: b, start, end });
+    }
+    return map;
+  }, [blocks]);
+
+  useEffect(() => {
+    const pane = paneRef.current;
+    if (!pane || !enabled) return;
+    let raf = 0;
+    let point: { x: number; y: number } | null = null;
+    const clearPdfHover = () => clearHover('pdf');
+    const resolve = () => {
+      raf = 0;
+      const hit = point && hitTest(point.x, point.y);
+      const entry = hit && itemIndex.get(`${hit.page}:${hit.item}`);
+      if (!hit || !entry) return clearPdfHover();
+      const { block, start, end } = entry;
+      const offset = Math.abs(hit.length - (end - start)) > 1 ? (hit.offset * (end - start)) / hit.length : hit.offset;
+      const pos = start + offset;
+      const list = block.koSentences;
+      if (!list?.length) return clearPdfHover();
+      const inside = list.findIndex((s) => s.start <= pos && pos < s.end);
+      const before = list.findLastIndex((s) => s.start <= pos);
+      const sentence = inside >= 0 ? inside : before;
+      if (sentence < 0) return clearPdfHover();
+      const cur = current();
+      if (cur?.from === 'pdf' && cur.block === block.idx && cur.sentence === sentence) return;
+      setHover({ block: block.idx, sentence, from: 'pdf' });
+    };
+    const onMove = (e: MouseEvent) => {
+      point = { x: e.clientX, y: e.clientY };
+      raf ||= requestAnimationFrame(resolve);
+    };
+    const onLeave = () => {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      clearPdfHover();
+    };
+    pane.addEventListener('mousemove', onMove);
+    pane.addEventListener('mouseleave', onLeave);
+    return () => {
+      pane.removeEventListener('mousemove', onMove);
+      pane.removeEventListener('mouseleave', onLeave);
+      cancelAnimationFrame(raf);
+      clearPdfHover();
+    };
+  }, [paneRef, enabled, itemIndex, setHover, clearHover, current]);
+
+  useEffect(() => {
+    const block = hover && blocks?.find((b) => b.idx === hover.block);
+    const sentence = block && hover ? block.koSentences?.[hover.sentence] : undefined;
+    showSync(enabled && block?.spans.length && sentence ? rangesFor(block, sentence.start, sentence.end) : []);
+  }, [hover, blocks, enabled]);
+
+  useEffect(() => () => showSync([]), []);
+  return null;
+}
+
 export function PdfPane() {
   const { paper, highlights, updateHighlight } = usePaper();
   const viewer = useViewer();
-  const { utilsRef, hoverBlock, currentPage, numPages, setCurrentPage, setNumPages, jumpToPage } = viewer;
+  const { utilsRef, currentPage, numPages, setCurrentPage, setNumPages, jumpToPage, showTranslation } = viewer;
+  const paneRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState<PdfScaleValue>('page-width');
   const [areaMode, setAreaMode] = useState(false);
   const [pageInput, setPageInput] = useState('');
   const areaModeRef = useRef(areaMode);
   areaModeRef.current = areaMode;
   const registeredViewer = useRef<unknown>(null);
+  /** The viewer and the node in its scroll container that holds the explain markers and cards. */
+  const [explain, setExplain] = useState<{ viewer: PDFViewer; host: HTMLDivElement } | null>(null);
   const [cite, setCite] = useState<{ hit: CiteHit; pos: PopoverPos } | null>(null);
   const closeCite = useCallback(() => setCite(null), []);
 
@@ -132,9 +209,14 @@ export function PdfPane() {
       registeredViewer.current = v;
       v.eventBus.on('pagechanging', (e: { pageNumber: number }) => setCurrentPage(e.pageNumber));
       v.eventBus.on('pagesinit', () => setNumPages(v.pagesCount));
+      // Inside the scroll container: scrolls with the pages, and page offsets share its origin.
+      const host = document.createElement('div');
+      host.className = 'pr-explain-host';
+      v.container.appendChild(host);
       // utilsRef runs during PdfHighlighter's render; defer our state updates.
       setTimeout(() => {
         if (v.pagesCount) setNumPages(v.pagesCount);
+        setExplain({ viewer: v, host });
       }, 0);
     },
     [utilsRef, setCurrentPage, setNumPages],
@@ -152,11 +234,7 @@ export function PdfPane() {
     void updateRef.current(id, { position, imageDataUrl });
   }, []);
 
-  const libHighlights = useMemo<Highlight[]>(() => {
-    const list: Highlight[] = highlights.map(toAppHighlight);
-    if (hoverBlock) list.push(blockHighlight(hoverBlock));
-    return list;
-  }, [highlights, hoverBlock]);
+  const libHighlights = useMemo<Highlight[]>(() => highlights.map(toAppHighlight), [highlights]);
 
   const selectionTip = useMemo(() => <SelectionTip />, []);
   const container = useMemo(() => <HighlightContainer onAreaChange={onAreaChange} />, [onAreaChange]);
@@ -169,25 +247,22 @@ export function PdfPane() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-stone-200 bg-white px-2 text-[12px]">
-        <button className="h-6 w-6 rounded border border-stone-300 hover:bg-stone-100" onClick={() => zoom(-0.1)} title="축소">
-          −
+      <div className="flex h-10 shrink-0 items-center gap-1.5 overflow-hidden border-b border-line bg-surface px-2 text-[12px] whitespace-nowrap [&>*]:shrink-0">
+        <button className={iconBtnCls} onClick={() => zoom(-0.1)} title="축소" aria-label="축소">
+          <Minus size={14} />
         </button>
-        <span className="w-10 text-center tabular-nums text-stone-600">
-          {typeof scale === 'number' ? `${Math.round(scale * 100)}%` : '폭'}
+        <span className="w-10 text-center font-mono tabular-nums text-fg-muted">
+          {typeof scale === 'number' ? `${Math.round(scale * 100)}%` : '맞춤'}
         </span>
-        <button className="h-6 w-6 rounded border border-stone-300 hover:bg-stone-100" onClick={() => zoom(0.1)} title="확대">
-          +
+        <button className={iconBtnCls} onClick={() => zoom(0.1)} title="확대" aria-label="확대">
+          <Plus size={14} />
         </button>
-        <button
-          className={`rounded border px-2 py-0.5 ${scale === 'page-width' ? 'border-stone-800 bg-stone-800 text-white' : 'border-stone-300 hover:bg-stone-100'}`}
-          onClick={() => setScale('page-width')}
-        >
+        <button className={chipCls(scale === 'page-width')} onClick={() => setScale('page-width')} aria-pressed={scale === 'page-width'}>
           폭 맞춤
         </button>
         <div className="mx-2 flex items-center gap-1">
           <input
-            className="w-10 rounded border border-stone-300 px-1 py-0.5 text-center tabular-nums"
+            className="h-7 w-10 rounded-md border border-line-strong bg-sunken px-1 text-center font-mono tabular-nums text-fg outline-none transition-[border-color] duration-150 placeholder:text-fg-dim focus:border-focus"
             value={pageInput}
             placeholder={String(currentPage)}
             onChange={(e) => setPageInput(e.target.value.replace(/\D/g, ''))}
@@ -199,25 +274,22 @@ export function PdfPane() {
             }}
             aria-label="쪽 번호"
           />
-          <span className="tabular-nums text-stone-500" data-testid="page-indicator">
+          <span className="font-mono tabular-nums text-fg-muted" data-testid="page-indicator">
             {currentPage} / {numPages || paper.pageCount || '?'}
           </span>
         </div>
-        <button
-          className={`rounded border px-2 py-0.5 ${areaMode ? 'border-blue-600 bg-blue-600 text-white' : 'border-stone-300 hover:bg-stone-100'}`}
-          onClick={() => setAreaMode((m) => !m)}
-          aria-pressed={areaMode}
-        >
+        <button className={chipCls(areaMode)} onClick={() => setAreaMode((m) => !m)} aria-pressed={areaMode}>
           영역 선택
         </button>
-        <span className="ml-auto truncate text-stone-400">Alt+드래그: 영역 선택</span>
+        <span className="ml-auto min-w-0 !shrink truncate text-fg-dim">{ALT_KEY} 드래그로 영역 선택</span>
       </div>
-      <div className="pdf-pane relative min-h-0 flex-1" onClickCapture={onPaneClick}>
+      <div ref={paneRef} className="pdf-pane relative min-h-0 flex-1" onClickCapture={onPaneClick}>
+        <SyncHoverBridge paneRef={paneRef} enabled={showTranslation} />
         <PdfLoader
           document={`/api/papers/${paper.id}/pdf`}
           workerSrc={workerUrl}
-          beforeLoad={() => <div className="p-6 text-[13px] text-stone-500">PDF 불러오는 중…</div>}
-          errorMessage={(e) => <div className="p-6 text-[13px] text-red-600">PDF를 열지 못했습니다: {e.message}</div>}
+          beforeLoad={() => <div className="p-6 text-[13px] text-fg-muted">PDF 불러오는 중…</div>}
+          errorMessage={(e) => <div className="p-6 text-[13px] text-danger">PDF를 열지 못했습니다: {e.message}</div>}
           onError={(e) => console.error(e)}
         >
           {(pdfDocument) => (
@@ -228,13 +300,14 @@ export function PdfPane() {
               selectionTip={selectionTip}
               pdfScaleValue={scale}
               utilsRef={onUtils}
-              textSelectionColor="rgba(59,130,246,0.3)"
+              textSelectionColor="rgba(35,178,255,0.3)"
             >
               {container}
             </PdfHighlighter>
           )}
         </PdfLoader>
         {cite && <CitationPopover paperId={paper.id} hit={cite.hit} pos={cite.pos} onClose={closeCite} />}
+        {explain && <ExplainLayer viewer={explain.viewer} host={explain.host} />}
       </div>
     </div>
   );

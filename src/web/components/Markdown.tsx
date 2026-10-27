@@ -3,6 +3,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
+import { normalizeMath } from '../markdown-math';
 import { useViewer } from '../state/viewer';
 
 /** `[p.3]` / `[p.3–4]` → link `#p-3` rendered as a page-jump chip. */
@@ -14,7 +15,7 @@ export function PageChip({ page, label, onJump }: { page: number; label?: string
   return (
     <button
       type="button"
-      className="mx-0.5 inline-flex items-center rounded bg-blue-50 px-1.5 py-0 align-baseline text-[11.5px] font-medium text-blue-700 ring-1 ring-blue-200 hover:bg-blue-100"
+      className="mx-0.5 inline-flex items-center rounded bg-accent-soft px-1.5 py-0 align-baseline text-[11.5px] font-medium text-accent ring-1 ring-accent/30 transition-colors duration-150 hover:bg-accent/20"
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -48,7 +49,7 @@ function MarkdownImpl({ text, className }: { text: string; className?: string })
   return (
     <div className={`md ${className ?? ''}`}>
       <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} components={components}>
-        {linkPages(text)}
+        {linkPages(normalizeMath(text))}
       </ReactMarkdown>
     </div>
   );

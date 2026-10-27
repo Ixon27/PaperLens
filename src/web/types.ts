@@ -1,9 +1,12 @@
+import type { ExplainAnchor } from '../shared/explain';
+import type { MadeBy, ModelSpec } from '../shared/models';
+
 export interface Author {
   family: string;
   given?: string;
 }
 
-export type JobKind = 'import' | 'translation' | 'analysis' | 'mindmap' | 'references';
+export type JobKind = 'import' | 'translation' | 'analysis' | 'summary' | 'mindmap' | 'references' | 'keywords';
 export type JobStatus = 'queued' | 'running' | 'done' | 'error';
 
 export interface JobDto {
@@ -42,23 +45,37 @@ export interface PaperDto {
   abstract?: string | null;
 }
 
+/** One translated sentence and the source characters `text[start, end)` it translates. */
+export interface KoSentence {
+  start: number;
+  end: number;
+  ko: string;
+}
+
 export interface BlockDto {
   idx: number;
   page: number;
   text: string;
-  /** [xMin, yMin, xMax, yMax] in PDF points, top-left origin */
-  lines: [number, number, number, number][];
+  /** [xMin, yMin, xMax, yMax] in PDF points, top-left origin; a 5th entry is the page when the paragraph continues there. */
+  lines: [number, number, number, number, number?][];
   pageW: number;
   pageH: number;
   isRef: boolean;
+  kind: 'body' | 'heading' | 'caption' | 'aside';
   translatable: boolean;
+  /** [page, text-layer item index, start, end]: which text-layer characters draw `text[start, end)`. Empty on old layouts. */
+  spans: [number, number, number, number][];
   ko: string | null;
+  /** Per-sentence translation; null when only the paragraph could be aligned (or it is untranslated). */
+  koSentences: KoSentence[] | null;
+  /** The model that translated this block. */
+  by: MadeBy | null;
 }
 
 export interface ArtifactDto<T = string> {
   content: T;
   meta: Record<string, unknown>;
-  engine: string | null;
+  by: MadeBy | null;
   updatedAt: string;
 }
 
@@ -69,6 +86,13 @@ export const HIGHLIGHT_COLORS: Record<HighlightColor, string> = {
   green: '#86efac',
   blue: '#93c5fd',
   pink: '#f9a8d4',
+};
+
+export const HIGHLIGHT_NAMES: Record<HighlightColor, string> = {
+  yellow: '노랑',
+  green: '초록',
+  blue: '파랑',
+  pink: '분홍',
 };
 
 export interface ScaledRect {
@@ -101,12 +125,22 @@ export interface HighlightDto {
 
 export interface Settings {
   engine: 'claude' | 'codex';
-  claude: { quickModel: string; heavyModel: string };
-  codex: { model: string; quickEffort: string; heavyEffort: string };
+  claude: { quickModel: string; heavyModel: string; quickEffort: string; heavyEffort: string };
+  codex: { quickModel: string; heavyModel: string; quickEffort: string; heavyEffort: string };
   readerContext: string;
   vaultPath: string | null;
   contactEmail: string;
   onboardingDone: boolean;
+}
+
+/** `GET /api/system` */
+export interface SystemInfo {
+  desktop: boolean;
+  filesPath: string;
+  dbPath: string;
+  vaultPath: string | null;
+  home: string;
+  dataDir: string;
 }
 
 export type ResearchType = 'wetlab' | 'omics' | 'review' | 'clinical';
@@ -119,9 +153,56 @@ export const RESEARCH_TYPE_LABELS: Record<ResearchType, string> = {
 };
 
 export interface AskInput {
-  action: 'ask' | 'explain' | 'figure';
+  action: 'ask' | 'explain' | 'figure' | 'card';
   question?: string;
   quote?: string;
   page?: number;
   imageDataUrl?: string;
+}
+
+export interface ThreadDto {
+  id: string;
+  title: string;
+  /** null follows the 빠른 작업 setting. */
+  model: ModelSpec | null;
+  /** `explain`: the follow-up chat of a PDF explanation card. */
+  kind: 'chat' | 'explain';
+  createdAt: string;
+}
+
+/** `GET /api/papers/:id/explanations`: a card thread and the PDF spot it explains. */
+export interface ExplanationDto extends ThreadDto {
+  anchor: ExplainAnchor;
+  /** Has a saved AI answer (the marker turns accent). */
+  answered: boolean;
+}
+
+export interface MessageDto {
+  id: string;
+  role: 'user' | 'assistant';
+  action: AskInput['action'] | null;
+  content: string;
+  quote: string | null;
+  page: number | null;
+  imageUrl: string | null;
+  by: MadeBy | null;
+  createdAt: string;
+}
+
+/** A message in the list; the live assistant bubble carries `streaming`/`error`. */
+export type ChatItem = MessageDto & { streaming?: boolean; error?: string };
+
+/** A term in the paper's 키워드 사전: AI-picked (`auto`) or looked up by the reader (`lookup`). */
+export interface TermDto {
+  id: string;
+  term: string;
+  /** The Korean term researchers use (the original when it is usually written in English). */
+  ko: string;
+  definition: string;
+  /** Its meaning or role in this paper; '' when the context did not say. */
+  inPaper: string;
+  page: number | null;
+  by: MadeBy | null;
+  createdAt: string;
+  source: 'auto' | 'lookup';
 }

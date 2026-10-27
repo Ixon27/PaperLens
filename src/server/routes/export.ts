@@ -10,6 +10,7 @@ import { runLlm } from '../llm';
 import { abstractOrPageOne } from '../pdf/context';
 import { fill, loadPrompt } from '../prompts';
 import { getSettings } from '../settings';
+import { orderSections } from '../tasks/analysis';
 
 export const exportRoutes = new Hono();
 
@@ -85,7 +86,7 @@ exportRoutes.post('/papers/:id/export/preview', async (c) => {
   let tags: string[] = [];
   try {
     const P = loadPrompt('export');
-    const res = await runLlm({ system: '', prompt: fill(P.SLUG, { title: paper.title, abstract: abstractOrPageOne(paper) }), profile: 'quick' });
+    const { text: res } = await runLlm({ system: '', prompt: fill(P.SLUG, { title: paper.title, abstract: abstractOrPageOne(paper) }), profile: 'quick' });
     const lines = res
       .split('\n')
       .map((l) => l.trim())
@@ -99,7 +100,8 @@ exportRoutes.post('/papers/:id/export/preview', async (c) => {
   if (!slug) slug = sanitizeSlug(fallbackSlug(paper.title));
   const filename = `${key}${slug ? '-' + slug : ''}.md`;
 
-  const analysis = getArtifact(paper.id, 'analysis')?.content ?? '';
+  const stored = getArtifact(paper.id, 'analysis')?.content;
+  const analysis = stored ? orderSections([stored]) : '';
   const haystack = normalize(analysis + '\n' + paper.title);
   const notes = [
     ...walkMd(join(vault, '04_References', 'Notes'), true),
@@ -194,7 +196,7 @@ exportRoutes.post('/papers/:id/export', async (c) => {
       researchTypes,
     },
     tags: (body.tags ?? []).map((t) => t.trim()).filter(Boolean),
-    analysis: art?.content ?? null,
+    analysis: art ? orderSections([art.content]) : null,
     engine: art?.engine ?? null,
     pdfPath: paper.pdf_file ? pdfVaultPath(paper.id, PATHS.pdfs, vault) : null,
     highlights,

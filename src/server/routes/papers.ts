@@ -2,16 +2,19 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import { PATHS } from '../config';
-import { db, getArtifact, getPaper, isTranslatable, now, parseAuthors, refreshFts, type BlockRow, type PaperRow } from '../db';
+import { db, getArtifact, getPaper, isTranslatable, madeByOf, now, parseAuthors, refreshFts, type BlockRow, type PaperRow } from '../db';
 import { latestJobs, snapshotOf, type JobRow } from '../jobs';
 import * as openalex from '../services/openalex';
 import { HttpError } from '../http-error';
-import { attachPdf, importFromInput, importUpload, normalizeDoi, paperIdByDoi } from '../tasks/import';
+import { orderSections } from '../tasks/analysis';
+import { attachPdf, ensureCurrentLayout, importFromInput, importUpload, normalizeDoi, paperIdByDoi } from '../tasks/import';
+import { ensureTranslationSentences } from '../tasks/translation-alignment';
+import type { MadeBy } from '../../shared/models';
 
 export const papers = new Hono();
 
 export function paperStatus(paperId: string) {
-  const blocks = db.prepare('SELECT is_ref, text FROM blocks WHERE paper_id=?').all(paperId) as Pick<BlockRow, 'is_ref' | 'text'>[];
+  const blocks = db.prepare('SELECT is_ref, text, kind FROM blocks WHERE paper_id=?').all(paperId) as Pick<BlockRow, 'is_ref' | 'text' | 'kind'>[];
   const done = (db.prepare('SELECT COUNT(*) AS n FROM translations WHERE paper_id=?').get(paperId) as { n: number }).n;
   const kinds = new Set(
     (db.prepare('SELECT kind FROM artifacts WHERE paper_id=?').all(paperId) as { kind: string }[]).map((r) => r.kind),
@@ -189,14 +192,18 @@ papers.post('/papers/:id/pdf', async (c) => {
   return c.json({ jobId: attachPdf(p.id, Buffer.from(await f.arrayBuffer())) });
 });
 
-papers.get('/papers/:id/blocks', (c) => {
+papers.get('/papers/:id/blocks', async (c) => {
   const p = requirePaper(c.req.param('id'));
+  // Upgrade reading metadata without discarding existing translations.
+  await ensureCurrentLayout(p.id);
+  ensureTranslationSentences(p.id);
   const rows = db
     .prepare(
-      `SELECT b.*, t.ko FROM blocks b LEFT JOIN translations t ON t.paper_id=b.paper_id AND t.block_idx=b.idx
+      `SELECT b.*, t.ko, t.sentences AS ko_sentences, t.made_by AS ko_by FROM blocks b
+       LEFT JOIN translations t ON t.paper_id=b.paper_id AND t.block_idx=b.idx
        WHERE b.paper_id=? ORDER BY b.idx`,
     )
-    .all(p.id) as unknown as (BlockRow & { ko: string | null })[];
+    .all(p.id) as unknown as (BlockRow & { ko: string | null; ko_sentences: string | null; ko_by: string | null })[];
   return c.json(
     rows.map((b) => ({
       idx: b.idx,
@@ -206,8 +213,14 @@ papers.get('/papers/:id/blocks', (c) => {
       pageW: b.page_w,
       pageH: b.page_h,
       isRef: Boolean(b.is_ref),
+      kind: b.kind,
       translatable: isTranslatable(b),
+      spans: JSON.parse(b.spans) as number[][],
       ko: b.ko,
+      koSentences: b.ko_sentences
+        ? (JSON.parse(b.ko_sentences) as [number, number, string][]).map(([start, end, ko]) => ({ start, end, ko }))
+        : null,
+      by: b.ko_by ? (JSON.parse(b.ko_by) as MadeBy) : null,
     })),
   );
 });
@@ -219,9 +232,12 @@ papers.get('/papers/:id/jobs', (c) => {
 
 papers.get('/papers/:id/artifacts/:kind', (c) => {
   const p = requirePaper(c.req.param('id'));
-  const a = getArtifact(p.id, c.req.param('kind'));
+  const kind = c.req.param('kind');
+  const a = getArtifact(p.id, kind);
   if (!a) throw new HttpError(404, '아직 없습니다');
-  return c.json({ content: a.content, meta: JSON.parse(a.meta) as unknown, engine: a.engine, updatedAt: a.updated_at });
+  // Analyses made before a section rename read under the current names.
+  const content = kind === 'analysis' ? orderSections([a.content]) : a.content;
+  return c.json({ content, meta: JSON.parse(a.meta) as unknown, by: madeByOf(a), updatedAt: a.updated_at });
 });
 
 export { requirePaper };

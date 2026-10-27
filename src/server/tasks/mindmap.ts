@@ -1,10 +1,9 @@
 import { getPaper, putArtifact } from '../db';
 import { startJob } from '../jobs';
 import { parseJsonLoose } from '../json';
-import { runLlm } from '../llm';
+import { resolveModel, runLlm } from '../llm';
 import { paperSystem } from '../pdf/context';
 import { loadPrompt } from '../prompts';
-import { getSettings } from '../settings';
 
 export const MIND_KINDS = ['background', 'question', 'method', 'finding', 'limitation', 'concept'] as const;
 export type MindKind = (typeof MIND_KINDS)[number];
@@ -82,21 +81,22 @@ export function startMindmap(paperId: string): string {
   return startJob(paperId, 'mindmap', async (ctx) => {
     const paper = getPaper(paperId);
     if (!paper) throw new Error('논문을 찾을 수 없습니다');
-    const engine = getSettings().engine;
+    const by = resolveModel('heavy');
     const pageCount = paper.page_count ?? 0;
-    const system = paperSystem(paper);
+    const system = paperSystem(paper, { includeRefs: false });
     const prompt = loadPrompt('mindmap').PROMPT;
     if (!prompt) throw new Error('prompts/mindmap.md 에 PROMPT 섹션이 없습니다');
+    const ask = async (p: string) => (await runLlm({ system, prompt: p, profile: 'heavy', model: by, signal: ctx.signal })).text;
 
     ctx.progress(0.05, '마인드맵 생성 중…');
-    let root = tryParse(await runLlm({ system, prompt, profile: 'heavy', signal: ctx.signal }, engine), pageCount);
+    let root = tryParse(await ask(prompt), pageCount);
     if (!root) {
       ctx.progress(0.5, 'JSON 다시 요청 중…');
-      root = tryParse(await runLlm({ system, prompt: prompt + JSON_ONLY, profile: 'heavy', signal: ctx.signal }, engine), pageCount);
+      root = tryParse(await ask(prompt + JSON_ONLY), pageCount);
     }
     if (!root) throw new Error('마인드맵 JSON 파싱 실패');
 
     const content: MindmapContent = { root, positions: {} };
-    putArtifact(paperId, 'mindmap', JSON.stringify(content), {}, engine);
+    putArtifact(paperId, 'mindmap', JSON.stringify(content), {}, by);
   });
 }

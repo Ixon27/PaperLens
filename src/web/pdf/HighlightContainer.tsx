@@ -15,7 +15,7 @@ export interface AppHighlight extends Highlight {
   text?: string | null;
 }
 
-const BLOCK_STYLE = { background: 'rgba(59,130,246,0.22)', outline: '1px solid rgba(59,130,246,0.6)' };
+const BLOCK_STYLE = { background: 'rgba(35,178,255,0.22)', outline: '1px solid rgba(35,178,255,0.65)' };
 const GHOST_COLOR = 'rgba(253,224,71,0.6)';
 
 function hexToRgba(hex: string, alpha: number) {
@@ -24,7 +24,7 @@ function hexToRgba(hex: string, alpha: number) {
 }
 
 function NoteTip({ note }: { note: string }) {
-  return <div className="max-w-[320px] whitespace-pre-wrap rounded-md border border-stone-200 bg-white px-3 py-2 text-[12.5px] text-stone-800 shadow-lg">{note}</div>;
+  return <div className="max-w-[320px] whitespace-pre-wrap rounded-lg border border-line bg-raised px-3 py-2 text-[12.5px] text-fg shadow-pop">{note}</div>;
 }
 
 /**
@@ -48,7 +48,7 @@ export function HighlightContainer({ onAreaChange }: { onAreaChange(id: string, 
       <AreaHighlight
         highlight={h}
         isScrolledTo={isScrolledTo}
-        style={{ background: fill, outline: isScrolledTo ? '2px solid #2563eb' : undefined }}
+        style={{ background: fill, outline: isScrolledTo ? '2px solid #23b2ff' : undefined }}
         onEditStart={() => toggleEditInProgress(true)}
         onChange={(rect) => {
           toggleEditInProgress(false);
@@ -58,7 +58,7 @@ export function HighlightContainer({ onAreaChange }: { onAreaChange(id: string, 
         }}
       />
     ) : (
-      <TextHighlight highlight={h} isScrolledTo={isScrolledTo} style={{ background: fill, outline: isScrolledTo ? '1px solid #2563eb' : undefined }} />
+      <TextHighlight highlight={h} isScrolledTo={isScrolledTo} style={{ background: fill, outline: isScrolledTo ? '1px solid #23b2ff' : undefined }} />
     );
 
   if (!h.note) return component;

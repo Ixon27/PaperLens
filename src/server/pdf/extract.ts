@@ -3,9 +3,9 @@ import { createRequire } from 'node:module';
 import { basename, dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { markReferences, pageBlocks, type Block } from './layout';
+import { layoutDocument, type Block, type PageText } from './layout';
 
-export type { Block, LineBox } from './layout';
+export type { Block, BlockKind, LineBox } from './layout';
 
 export interface ExtractionResult {
   pageCount: number;
@@ -51,19 +51,18 @@ export async function extractBlocks(pdfPath: string): Promise<ExtractionResult> 
   });
   try {
     const pdf = await loading.promise;
-    const blocks: Block[] = [];
+    const pages: PageText[] = [];
     for (let number = 1; number <= pdf.numPages; number++) {
       const page = await pdf.getPage(number);
       try {
         // Unrotated PDF-point coordinates match the viewer's scaled-coordinate contract.
-        const viewport = page.getViewport({ scale: 1, rotation: 0 });
-        const content = await page.getTextContent();
-        blocks.push(...pageBlocks(number, viewport, content, blocks.length));
+        pages.push({ viewport: page.getViewport({ scale: 1, rotation: 0 }), content: await page.getTextContent() });
       } finally {
         page.cleanup();
       }
     }
-    markReferences(blocks);
+    // Headers, footers and the body type size are only recognizable across the whole document.
+    const blocks: Block[] = layoutDocument(pages);
     let title: string | null = null;
     try {
       const { info, metadata } = await pdf.getMetadata();

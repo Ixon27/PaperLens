@@ -1,9 +1,8 @@
 import { getArtifact, getBlocks, getPaper, putArtifact, type BlockRow } from '../db';
 import { startJob, type JobCtx } from '../jobs';
 import { parseJsonLoose } from '../json';
-import { runLlm } from '../llm';
+import { resolveModel, runLlm } from '../llm';
 import { fill, loadPrompt } from '../prompts';
-import { getSettings } from '../settings';
 
 export interface RefEntry {
   key: string;
@@ -70,28 +69,49 @@ async function runReferences(paperId: string, ctx: JobCtx) {
   const blocks = sourceBlocks(getBlocks(paperId), paper.page_count ?? 0);
   const chunks = chunkBlocks(blocks.map((b) => b.text));
   const P = loadPrompt('references');
+  const by = resolveModel('quick');
+  ctx.progress(0, '참고문헌 목록 추출 중');
+  // All chunks at once (the CLI semaphore bounds concurrency); one failing call stops the rest.
+  const stop = new AbortController();
+  const signal = AbortSignal.any([ctx.signal, stop.signal]);
+  let completed = 0;
+  const results = await Promise.all(
+    chunks.map(async (chunk): Promise<unknown[] | null> => {
+      try {
+        const { text } = await runLlm({ system: SYSTEM, prompt: fill(P.PROMPT, { text: chunk }), profile: 'quick', model: by, signal });
+        let list: unknown[] | null;
+        try {
+          const parsed = parseJsonLoose<unknown>(text);
+          list = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          list = null;
+          ctx.message('일부 참고문헌 파싱 실패');
+        }
+        ctx.progress(++completed / chunks.length);
+        return list;
+      } catch (e) {
+        stop.abort();
+        throw e;
+      }
+    }),
+  );
+  // Merge in chunk order so deduplication does not depend on which call finished first.
   const entries: RefEntry[] = [];
   const seen = new Set<string>();
   let failed = 0;
-  ctx.progress(0, '참고문헌 목록 추출 중');
-  for (let i = 0; i < chunks.length; i++) {
-    const out = await runLlm({ system: SYSTEM, prompt: fill(P.PROMPT, { text: chunks[i] }), profile: 'quick', signal: ctx.signal });
-    try {
-      const parsed = parseJsonLoose<unknown>(out);
-      const list = Array.isArray(parsed) ? parsed : [];
-      for (const raw of list) {
-        const e = toEntry(raw);
-        if (!e || seen.has(e.key)) continue;
-        seen.add(e.key);
-        entries.push(e);
-      }
-    } catch {
+  for (const list of results) {
+    if (!list) {
       failed++;
-      ctx.message('일부 참고문헌 파싱 실패');
+      continue;
     }
-    ctx.progress((i + 1) / chunks.length);
+    for (const raw of list) {
+      const e = toEntry(raw);
+      if (!e || seen.has(e.key)) continue;
+      seen.add(e.key);
+      entries.push(e);
+    }
   }
-  putArtifact(paperId, 'references', JSON.stringify(entries), { count: entries.length, failedChunks: failed }, getSettings().engine);
+  putArtifact(paperId, 'references', JSON.stringify(entries), { count: entries.length, failedChunks: failed }, by);
 }
 
 export function startReferences(paperId: string): string {

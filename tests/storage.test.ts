@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolveStoragePaths } from '../src/shared/storage';
+import { defaultDataDir, resolveStoragePaths } from '../src/shared/storage';
 
 let home: string;
 beforeEach(() => { home = mkdtempSync(join(tmpdir(), 'paper-reader-storage-')); });
@@ -47,4 +47,11 @@ describe('per-user storage', () => {
     } });
     expect(result).toEqual({ dbDir: join(home, 'custom-db'), files: join(home, 'custom-pdfs'), vault: null });
   });
+});
+
+it('keeps Windows data under %APPDATA% and macOS data under Application Support', () => {
+  expect(defaultDataDir({ home: 'C:\\Users\\me', env: { APPDATA: 'C:\\Users\\me\\AppData\\Roaming' }, platform: 'win32' })).toBe(
+    join('C:\\Users\\me\\AppData\\Roaming', 'paper-reader'),
+  );
+  expect(defaultDataDir({ home: '/Users/me', env: {}, platform: 'darwin' })).toBe(join('/Users/me', 'Library', 'Application Support', 'paper-reader'));
 });

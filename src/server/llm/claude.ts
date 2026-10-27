@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawnCli } from './command';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -13,7 +13,7 @@ interface StreamLine {
 }
 
 export function runClaude(call: EngineCall): Promise<string> {
-  const { settings, profile, cwd } = call;
+  const { spec, cwd } = call;
   const systemFile = join(cwd, 'system.txt');
   writeFileSync(systemFile, call.system);
   const args = [
@@ -21,15 +21,18 @@ export function runClaude(call: EngineCall): Promise<string> {
     '--output-format', 'stream-json',
     '--verbose',
     '--include-partial-messages',
-    '--model', profile === 'quick' ? settings.claude.quickModel : settings.claude.heavyModel,
+    '--model', spec.model,
     '--tools', '',
     '--no-session-persistence',
     '--setting-sources', 'project',
+    // Tools are off, so the user's MCP servers and skills would only slow every start.
+    '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--disable-slash-commands',
     '--system-prompt-file', systemFile,
   ];
+  if (spec.effort) args.push('--effort', spec.effort);
   if (call.imagePath) args.push('--input-format', 'stream-json');
 
-  const child = spawn(call.bin, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawnCli(call.bin, args, { cwd });
   call.attach(child);
 
   const { promise, resolve, reject } = Promise.withResolvers<string>();

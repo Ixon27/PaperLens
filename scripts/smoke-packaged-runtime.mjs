@@ -1,7 +1,9 @@
-// Run with the packaged executable in ELECTRON_RUN_AS_NODE mode, never the host's Node.
+// Run with the packaged executable in ELECTRON_RUN_AS_NODE mode, never the host's Node:
+//   macOS:   ELECTRON_RUN_AS_NODE=1 "PaperLens.app/Contents/MacOS/PaperLens" scripts/smoke-packaged-runtime.mjs
+//   Windows: ELECTRON_RUN_AS_NODE=1 "win-unpacked/PaperLens.exe" scripts/smoke-packaged-runtime.mjs
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn, execFileSync } from 'node:child_process';
@@ -12,8 +14,10 @@ import { createServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 
 assert.ok(process.versions.electron, 'Use the packaged Electron executable');
-const bundle = resolve(process.argv[2]);
-const root = join(bundle, 'Contents', 'Resources', 'app.asar');
+const isMac = process.platform === 'darwin';
+// The packaged app's resources sit next to the executable running this script.
+const resources = isMac ? join(dirname(process.execPath), '..', 'Resources') : join(dirname(process.execPath), 'resources');
+const root = join(resources, 'app.asar');
 const require = createRequire(join(root, 'package.json'));
 const db = new DatabaseSync(':memory:');
 try {
@@ -67,8 +71,9 @@ probe.listen(0, '127.0.0.1');
 await once(probe, 'listening');
 const debugPort = probe.address().port;
 await new Promise(resolve => probe.close(resolve));
-const env = { ...process.env, HOME: home, PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
-  PAPER_READER_USER_DATA: join(home, 'data'), PAPER_READER_DEBUG_PORT: String(debugPort) };
+const env = { ...process.env, HOME: home, PAPER_READER_USER_DATA: join(home, 'data'), PAPER_READER_DEBUG_PORT: String(debugPort) };
+// macOS: no developer tools on PATH, as when the app starts from Finder.
+if (isMac) env.PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
 for (const key of ['ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS', 'NODE_PATH', 'PAPER_READER_DB_DIR', 'PAPER_READER_FILES', 'PAPER_READER_VAULT']) delete env[key];
 const child = spawn(process.execPath, [], { cwd: home, env, stdio: 'ignore' });
 const exited = once(child, 'exit');
@@ -140,14 +145,21 @@ try {
   assert.equal((await fetch(new URL('/api/settings', target.url))).status, 401);
   await evaluate(`location.href = '/paper/${result.id}'; true`);
   await until(() => evaluate('document.querySelector(\"canvas\")?.width > 0 && document.querySelector(\".textLayer\")?.textContent.trim() === \"Paper Reader\"'));
-  socket.close();
-  execFileSync('/usr/bin/osascript', ['-e', `tell application ${JSON.stringify(bundle)} to quit`]);
+  if (isMac) {
+    socket.close();
+    execFileSync('/usr/bin/osascript', ['-l', 'JavaScript', '-e',
+      `ObjC.import('AppKit'); if (!$.NSRunningApplication.runningApplicationWithProcessIdentifier(${child.pid}).terminate) throw new Error('Could not quit smoke app');`]);
+  } else {
+    // Windows: closing the only window quits the app, as when a user closes it.
+    socket.send(JSON.stringify({ id: ++commandId, method: 'Runtime.evaluate', params: { expression: 'window.close()' } }));
+  }
   const [code] = await within(exited);
   assert.equal(code, 0);
   await assert.rejects(() => fetch(new URL('/api/settings', target.url)));
   console.log(JSON.stringify({ packagedUpload: 'Paper Reader', pdfViewer: 'rendered', freshUser: true, nativeQuit: 'backend stopped' }));
 } catch (error) {
-  try { console.error(readFileSync(join(home, 'Library/Logs/paper-reader/desktop.log'), 'utf8')); } catch {}
+  const logFile = isMac ? join(home, 'Library/Logs/paper-reader/desktop.log') : join(process.env.APPDATA ?? '', 'paper-reader', 'logs', 'desktop.log');
+  try { console.error(readFileSync(logFile, 'utf8')); } catch {}
   throw error;
 } finally {
   socket?.close();

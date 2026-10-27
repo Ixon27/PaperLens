@@ -5,9 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { buildAppIcon } from './build-app-icon.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-if (process.platform !== 'darwin' || !['arm64', 'x64'].includes(process.arch)) {
-  throw new Error('macOS ARM64 또는 Intel 머신에서 해당 아키텍처의 앱을 빌드하세요.');
-}
+// Each installer is built on its own OS and CPU: the canvas addon is a per-platform binary.
+const NATIVE_CANVAS = {
+  'darwin-arm64': '@napi-rs/canvas-darwin-arm64',
+  'darwin-x64': '@napi-rs/canvas-darwin-x64',
+  'win32-x64': '@napi-rs/canvas-win32-x64-msvc',
+};
+const nativePackage = NATIVE_CANVAS[`${process.platform}-${process.arch}`];
+if (!nativePackage) throw new Error('macOS(ARM64·Intel) 또는 Windows(x64)에서 해당 플랫폼의 앱을 빌드하세요.');
 if (!existsSync(join(root, 'dist/index.html'))) throw new Error('웹 빌드가 없습니다. 먼저 npm run build를 실행하세요.');
 const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const output = join(root, 'build-desktop');
@@ -37,7 +42,6 @@ for (const file of ['main.mjs', 'backend.mjs', 'preload.cjs']) cpSync(join(outpu
 for (const directory of ['dist', 'prompts']) cpSync(join(root, directory), join(staged, directory), { recursive: true, dereference: true });
 if (existsSync(join(root, 'LICENSE'))) cpSync(join(root, 'LICENSE'), join(staged, 'LICENSE'));
 
-const nativePackage = `@napi-rs/canvas-darwin-${process.arch}`;
 const dependencies = {};
 for (const name of ['pdfjs-dist', '@napi-rs/canvas', nativePackage]) {
   const source = join(root, 'node_modules', name);
@@ -49,7 +53,7 @@ for (const name of ['pdfjs-dist', '@napi-rs/canvas', nativePackage]) {
   cpSync(source, destination, { recursive: true, dereference: true });
 }
 writeFileSync(join(staged, 'package.json'), JSON.stringify({
-  name: manifest.name, version: manifest.version, productName: 'Paper Reader',
+  name: manifest.name, version: manifest.version, productName: manifest.productName,
   description: manifest.description ?? '내 컴퓨터에서 읽고 정리하는 연구 논문',
   author: manifest.author ?? 'Ixon27', license: manifest.license ?? 'MIT',
   type: 'module', main: 'build-desktop/main.mjs', dependencies,

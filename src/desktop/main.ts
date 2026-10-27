@@ -1,18 +1,20 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, utilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell, utilityProcess } from 'electron';
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions, UtilityProcess } from 'electron';
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveStoragePaths } from '../shared/storage';
+import { defaultDataDir, resolveStoragePaths } from '../shared/storage';
 import { IPC } from './protocol';
 import type { BackendMessage, DesktopInfo } from './protocol';
 
-app.setName('Paper Reader');
-const requestedUserData = process.env.PAPER_READER_USER_DATA ?? join(homedir(), 'Library', 'Application Support', 'paper-reader');
+const isMac = process.platform === 'darwin';
+// The data folder keeps its original `paper-reader` name, so a renamed app opens the same library.
+app.setName('PaperLens');
+const requestedUserData = process.env.PAPER_READER_USER_DATA ?? defaultDataDir();
 const userData = requestedUserData === '~' || requestedUserData.startsWith('~/') ? join(homedir(), requestedUserData.slice(1)) : requestedUserData;
-const logDir = join(homedir(), 'Library', 'Logs', 'paper-reader');
+const logDir = isMac ? join(homedir(), 'Library', 'Logs', 'paper-reader') : join(defaultDataDir(), 'logs');
 const logFile = join(logDir, 'desktop.log');
 let startupError: unknown;
 try {
@@ -40,6 +42,21 @@ let quitting = false;
 let mayQuit = false;
 let failureShown = false;
 
+const themeBackground = () => nativeTheme.shouldUseDarkColors ? '#15181f' : '#f6f7f9';
+const themeFile = join(userData, 'theme.json');
+type ThemeSource = 'system' | 'light' | 'dark';
+const isThemeSource = (value: unknown): value is ThemeSource => value === 'system' || value === 'light' || value === 'dark';
+
+/** The renderer's last theme choice, so the window opens in it without a light first frame. */
+function readThemeSource(): ThemeSource {
+  try {
+    const theme: unknown = JSON.parse(readFileSync(themeFile, 'utf8')).theme;
+    return isThemeSource(theme) ? theme : 'system';
+  } catch {
+    return 'system';
+  }
+}
+
 function log(message: string) {
   const safe = message.replaceAll(token, '[redacted]');
   try { appendFileSync(logFile, `${new Date().toISOString()} ${safe}\n`, { mode: 0o600 }); }
@@ -50,7 +67,7 @@ async function fail(error: unknown) {
   log(error instanceof Error ? error.stack ?? error.message : String(error));
   if (failureShown || quitting) return;
   failureShown = true;
-  dialog.showErrorBox('Paper Reader를 열지 못했습니다', `앱을 종료한 뒤 다시 실행해 주세요. 문제가 계속되면 로그를 확인해 주세요.\n\n${error instanceof Error ? error.message.replaceAll(token, '[redacted]') : '알 수 없는 오류'}\n\n로그: ${logFile}`);
+  dialog.showErrorBox('PaperLens를 열지 못했습니다', `앱을 종료한 뒤 다시 실행해 주세요. 문제가 계속되면 로그를 확인해 주세요.\n\n${error instanceof Error ? error.message.replaceAll(token, '[redacted]') : '알 수 없는 오류'}\n\n로그: ${logFile}`);
   app.quit();
 }
 
@@ -83,8 +100,13 @@ function settings() {
 }
 
 function installMenu() {
+  // Windows: no menu bar (Alt-drag selects PDF areas and must not pop one up); the page handles Ctrl+,.
+  if (!isMac) {
+    Menu.setApplicationMenu(null);
+    return;
+  }
   const template: MenuItemConstructorOptions[] = [
-    { label: 'Paper Reader', submenu: [
+    { label: 'PaperLens', submenu: [
       { role: 'about' }, { type: 'separator' },
       { label: '설정…', accelerator: 'CommandOrControl+,', click: settings },
       { type: 'separator' }, { role: 'services' }, { type: 'separator' },
@@ -107,8 +129,10 @@ async function showWindow() {
     return;
   }
   const browser = new BrowserWindow({
-    title: 'Paper Reader', width: 1440, height: 960, minWidth: 960, minHeight: 640,
-    backgroundColor: '#f8fafc', show: false,
+    title: 'PaperLens', width: 1440, height: 960, minWidth: 960, minHeight: 640,
+    backgroundColor: themeBackground(), show: false,
+    // macOS: the app's header is the title bar. Windows keeps its native frame and window buttons.
+    ...(isMac ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 15 } } : {}),
     webPreferences: {
       preload: join(dirname(fileURLToPath(import.meta.url)), 'preload.cjs'),
       session: session.fromPartition('paper-reader'),
@@ -148,13 +172,14 @@ async function startBackend() {
     PAPER_READER_FILES: storage.files, PAPER_READER_PARENT_PID: String(process.pid),
   };
   // Finder does not load shell profiles; npm-based CLI launchers still need their Node on PATH.
-  env.PATH = [join(homedir(), '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', process.env.PATH ?? '/usr/bin:/bin:/usr/sbin:/sbin'].join(':');
+  // (Windows apps already get the user's PATH from Explorer.)
+  if (isMac) env.PATH = [join(homedir(), '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', process.env.PATH ?? '/usr/bin:/bin:/usr/sbin:/sbin'].join(':');
   // Never let development Node options or Electron's CLI mode change the backend runtime.
   delete env.NODE_OPTIONS;
   delete env.NODE_PATH;
   delete env.ELECTRON_RUN_AS_NODE;
   const child = utilityProcess.fork(join(root, 'build-desktop/backend.mjs'), [], {
-    cwd: userData, env, stdio: 'pipe', serviceName: 'Paper Reader Backend',
+    cwd: userData, env, stdio: 'pipe', serviceName: 'PaperLens Backend',
   });
   backend = child;
   child.stdout?.on('data', (chunk: Buffer) => log(`backend: ${chunk.toString('utf8').trimEnd()}`));
@@ -214,7 +239,8 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', () => { void showWindow().catch(fail); });
   app.on('activate', () => { void showWindow().catch(fail); });
-  app.on('window-all-closed', () => { /* Native macOS apps remain in the Dock until Quit. */ });
+  // macOS apps stay in the Dock until Quit; on Windows closing the window ends the app (and its backend).
+  app.on('window-all-closed', () => { if (!isMac) app.quit(); });
   app.on('before-quit', event => {
     if (mayQuit) return;
     event.preventDefault();
@@ -225,14 +251,32 @@ if (!app.requestSingleInstanceLock()) {
   process.on('uncaughtException', error => { void fail(error); });
   process.on('unhandledRejection', error => { void fail(error); });
   void app.whenReady().then(async () => {
+    nativeTheme.themeSource = readThemeSource();
     if (startupError) throw startupError;
-    log(`Paper Reader ${app.getVersion()} (${process.arch}) 시작`);
+    log(`PaperLens ${app.getVersion()} (${process.arch}) 시작`);
     installMenu();
     ipcMain.handle(IPC.getInfo, event => { checkSender(event); return info; });
     ipcMain.handle(IPC.chooseDirectory, async event => {
       const owner = checkSender(event);
       const result = await dialog.showOpenDialog(owner, { title: 'Obsidian 볼트 폴더 선택', properties: ['openDirectory', 'createDirectory'] });
       return result.canceled ? null : result.filePaths[0] ?? null;
+    });
+    ipcMain.handle(IPC.reveal, async (event, target: unknown) => {
+      checkSender(event);
+      const path = target === 'data' ? storage.dbDir : target === 'files' ? storage.files : null;
+      if (!path) throw new Error('알 수 없는 위치입니다.');
+      const err = await shell.openPath(path);
+      if (err) throw new Error(err);
+    });
+    ipcMain.handle(IPC.getTheme, event => { checkSender(event); return nativeTheme.themeSource; });
+    ipcMain.handle(IPC.setTheme, (event, value: unknown) => {
+      checkSender(event);
+      if (!isThemeSource(value)) throw new Error('알 수 없는 화면 모드입니다.');
+      nativeTheme.themeSource = value;
+      writeFileSync(themeFile, JSON.stringify({ theme: value }), { mode: 0o600 });
+    });
+    nativeTheme.on('updated', () => {
+      if (window && !window.isDestroyed()) window.setBackgroundColor(themeBackground());
     });
     await startBackend();
     const appSession = session.fromPartition('paper-reader');

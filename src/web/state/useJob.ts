@@ -12,6 +12,8 @@ export interface JobHandle {
   /** Accumulated streamed text (snapshot + deltas; `text` events replace it). */
   text: string;
   running: boolean;
+  /** The latest job of this kind has been looked up (`job` null then means there is none). */
+  loaded: boolean;
   /** Follow a job that was just started (or is already running). */
   attach(jobId: string): void;
   cancel(): Promise<void>;
@@ -28,6 +30,7 @@ export function useJob(
   const { paper } = usePaper();
   const [job, setJobState] = useState<JobDto | null>(null);
   const [text, setText] = useState('');
+  const [loaded, setLoaded] = useState(false);
   const jobRef = useRef<JobDto | null>(null);
   const unsubRef = useRef<(() => void) | null>(null);
   const handlersRef = useRef(handlers);
@@ -76,12 +79,15 @@ export function useJob(
     let cancelled = false;
     setJob(null);
     setText('');
+    setLoaded(false);
     void api<Snapshot[]>(`/api/papers/${paper.id}/jobs`).then((list) => {
       if (cancelled) return;
       const latest = list.find((j) => j.kind === kind);
-      if (!latest) return;
-      if (latest.status === 'running' || latest.status === 'queued') attach(latest.id);
-      else setJob({ id: latest.id, kind: latest.kind, status: latest.status, progress: latest.progress, message: latest.message, error: latest.error });
+      if (latest) {
+        setJob({ id: latest.id, kind: latest.kind, status: latest.status, progress: latest.progress, message: latest.message, error: latest.error });
+        if (latest.status === 'running' || latest.status === 'queued') attach(latest.id);
+      }
+      setLoaded(true);
     });
     return () => {
       cancelled = true;
@@ -94,5 +100,5 @@ export function useJob(
     if (job) await api(`/api/jobs/${job.id}/cancel`, { method: 'POST' });
   }, [job]);
 
-  return { job, text, running: job?.status === 'running' || job?.status === 'queued', attach, cancel };
+  return { job, text, running: job?.status === 'running' || job?.status === 'queued', loaded, attach, cancel };
 }

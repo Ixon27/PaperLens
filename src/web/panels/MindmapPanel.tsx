@@ -16,8 +16,10 @@ import {
 import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
+import { smallBtnCls } from '../components/Dialog';
 import { JobBar } from '../components/JobBar';
 import { PageChip } from '../components/Markdown';
+import { ModelBadge } from '../components/ModelBadge';
 import { useToast } from '../components/Toast';
 import { usePaper } from '../state/paper';
 import { useJob } from '../state/useJob';
@@ -92,13 +94,13 @@ function layout(nodes: MindFlowNode[], edges: Edge[], positions: Positions): Min
 
 function MindCard({ data }: NodeProps<MindFlowNode>) {
   const { jumpToPage } = useViewer();
-  const border = data.kind ? KIND_BORDER[data.kind] : data.isRoot ? 'border-l-stone-800' : 'border-l-stone-300';
+  const border = data.kind ? KIND_BORDER[data.kind] : data.isRoot ? 'border-l-fg' : 'border-l-line-strong';
   return (
-    <div className={`rounded-md border border-stone-200 border-l-4 bg-white px-2.5 py-1.5 shadow-sm ${border}`} style={{ width: NODE_W }}>
-      {!data.isRoot && <Handle type="target" position={Position.Left} className="!h-1.5 !w-1.5 !border-0 !bg-stone-300" />}
-      <div className={`font-bold leading-snug text-stone-900 ${data.isRoot ? 'text-[14px]' : 'text-[13px]'}`}>{data.label}</div>
+    <div className={`rounded-md border border-line border-l-4 bg-surface px-2.5 py-1.5 shadow-sm ${border}`} style={{ width: NODE_W }}>
+      {!data.isRoot && <Handle type="target" position={Position.Left} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />}
+      <div className={`font-bold leading-snug text-fg ${data.isRoot ? 'text-[14px]' : 'text-[13px]'}`}>{data.label}</div>
       {data.bullets.length > 0 && (
-        <ul className="mt-0.5 list-disc pl-4 text-[11.5px] leading-[20px] text-stone-600">
+        <ul className="mt-0.5 list-disc pl-4 text-[11.5px] leading-[20px] text-fg-muted">
           {data.bullets.map((b, i) => (
             <li key={i}>{b}</li>
           ))}
@@ -111,7 +113,7 @@ function MindCard({ data }: NodeProps<MindFlowNode>) {
           ))}
         </div>
       )}
-      <Handle type="source" position={Position.Right} className="!h-1.5 !w-1.5 !border-0 !bg-stone-300" />
+      <Handle type="source" position={Position.Right} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />
     </div>
   );
 }
@@ -229,13 +231,12 @@ function MindmapInner() {
     applyArtifact({ ...artifact, content: { ...artifact.content, positions: {} } });
   };
 
-  const btnBase = 'rounded border px-2 py-0.5 text-[12px] disabled:opacity-40';
-  const btn = `${btnBase} border-stone-300 bg-white hover:bg-stone-100`;
+  const btn = smallBtnCls;
   const big = pdfMode === 'full-panel';
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 flex-col gap-2 border-b border-stone-200 px-3 py-2">
+      <div className="flex shrink-0 flex-col gap-2 border-b border-line px-3 py-2">
         <div className="flex items-center gap-1.5">
           <button className={btn} disabled={job.running} onClick={() => void generate()}>
             {artifact ? '다시 생성' : '생성'}
@@ -244,15 +245,20 @@ function MindmapInner() {
             자동 정렬
           </button>
           <button
-            className={big ? `${btnBase} border-stone-700 bg-stone-800 text-white hover:bg-stone-700` : btn}
+            className={
+              big
+                ? 'inline-flex h-7 items-center justify-center gap-1.5 rounded-md border border-inverse bg-inverse px-2 text-[12px] text-inverse-fg transition-[transform,background-color,color,border-color,opacity] duration-150 ease-out hover:opacity-90 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50'
+                : btn
+            }
             aria-pressed={big}
             onClick={() => setPdfMode(big ? 'split' : 'full-panel')}
           >
             크게 보기
           </button>
           {artifact && (
-            <span className="ml-auto truncate text-[11px] text-stone-400">
-              {artifact.engine ?? ''} · {artifact.updatedAt.slice(0, 10)}
+            <span className="ml-auto flex min-w-0 items-center gap-1 truncate text-[11px] text-fg-dim">
+              <ModelBadge by={artifact.by} />
+              <span className="shrink-0">· {artifact.updatedAt.slice(0, 10)}</span>
             </span>
           )}
         </div>
@@ -261,6 +267,7 @@ function MindmapInner() {
       <div className="relative min-h-0 flex-1">
         {artifact ? (
           <ReactFlow
+            colorMode="system"
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
@@ -279,7 +286,7 @@ function MindmapInner() {
         ) : (
           loaded &&
           !job.running && (
-            <div className="p-6 text-[13px] text-stone-500">
+            <div className="p-6 text-[13px] text-fg-muted">
               논문 구조를 마인드맵으로 만듭니다. 위의 <b>생성</b>을 누르세요.
             </div>
           )

@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawnCli, stopCli } from './command';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -23,18 +23,28 @@ type Send = (message: unknown) => void;
 const shutdown = new AbortController();
 let pending: Promise<ModelCatalog> | null = null;
 
-function appendModels(target: ModelChoice[], seen: Set<string>, data: unknown, engine: Engine): void {
+const isEffort = (v: unknown): v is string => typeof v === 'string' && /^[a-z]+$/.test(v);
+
+export function appendModels(target: ModelChoice[], seen: Set<string>, data: unknown, engine: Engine): void {
   if (!Array.isArray(data)) throw new Error('CLI 모델 목록 형식이 올바르지 않습니다. CLI를 업데이트하세요.');
   for (const item of data) {
     if (!item || typeof item !== 'object' || item.hidden === true) continue;
     const value = engine === 'claude' ? item.value : item.model;
     if (typeof value !== 'string' || !value.trim() || seen.has(value)) continue;
     seen.add(value);
+    const efforts: string[] = engine === 'claude'
+      ? item.supportsEffort === true && Array.isArray(item.supportedEffortLevels) ? item.supportedEffortLevels.filter(isEffort) : []
+      : Array.isArray(item.supportedReasoningEfforts)
+        ? item.supportedReasoningEfforts.map((e: { reasoningEffort?: unknown } | null) => e?.reasoningEffort).filter(isEffort)
+        : [];
     target.push({
       value,
       label: typeof item.displayName === 'string' && item.displayName.trim() ? item.displayName : value,
       description: typeof item.description === 'string' ? item.description : '',
       ...(typeof item.resolvedModel === 'string' ? { resolvedModel: item.resolvedModel } : {}),
+      efforts,
+      ...(isEffort(item.defaultReasoningEffort) ? { defaultEffort: item.defaultReasoningEffort } : {}),
+      ...(item.isDefault === true ? { isDefault: true } : {}),
     });
   }
 }
@@ -49,7 +59,7 @@ async function queryCli(engine: Engine, bin: string): Promise<ModelChoice[]> {
     '--tools', '', '--no-session-persistence', '--setting-sources', 'project',
     '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
   ] : ['app-server', '--listen', 'stdio://'];
-  const child = spawn(bin, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawnCli(bin, args, { cwd });
   const closed = Promise.withResolvers<void>();
   const result = Promise.withResolvers<ModelChoice[]>();
   const lines = createInterface({ input: child.stdout });
@@ -104,7 +114,7 @@ async function queryCli(engine: Engine, bin: string): Promise<ModelChoice[]> {
     } catch (error) { result.reject(error); }
   });
   if (engine === 'claude') send({ type: 'control_request', request_id: 'models', request: { subtype: 'initialize' } });
-  else send({ method: 'initialize', id: 1, params: { clientInfo: { name: 'paper_reader', title: 'Paper Reader', version: '1' } } });
+  else send({ method: 'initialize', id: 1, params: { clientInfo: { name: 'paper_reader', title: 'PaperLens', version: '1' } } });
   try {
     return await result.promise;
   } finally {
@@ -112,7 +122,7 @@ async function queryCli(engine: Engine, bin: string): Promise<ModelChoice[]> {
     shutdown.signal.removeEventListener('abort', onAbort);
     lines.close();
     child.stdin.end();
-    if (child.exitCode === null) child.kill('SIGTERM');
+    stopCli(child);
     const forceKill = setTimeout(() => { if (child.exitCode === null) child.kill('SIGKILL'); }, 2_000);
     await closed.promise;
     clearTimeout(forceKill);

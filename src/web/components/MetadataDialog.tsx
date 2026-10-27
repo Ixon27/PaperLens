@@ -52,7 +52,7 @@ export function MetadataDialog({ paper, onClose, onSaved }: { paper: PaperDto; o
           doi: f.doi.trim() || null,
         },
       });
-      toast('메타데이터를 저장했습니다');
+      toast('논문 정보를 저장했습니다');
       onSaved();
       onClose();
     } catch (e) {
@@ -64,25 +64,25 @@ export function MetadataDialog({ paper, onClose, onSaved }: { paper: PaperDto; o
 
   return (
     <Dialog
-      title="메타데이터"
+      title="논문 정보 수정"
       onClose={onClose}
       width={600}
-      footer={
+      footer={(close) => (
         <>
-          <button className={btnCls} onClick={onClose}>
+          <button className={btnCls} onClick={close}>
             취소
           </button>
           <button className={primaryBtnCls} disabled={saving || !f.title.trim()} onClick={() => void save()}>
             저장
           </button>
         </>
-      }
+      )}
     >
       <Field label="제목">
         <textarea className={`${inputCls} h-16 resize-y`} value={f.title} onChange={set('title')} />
       </Field>
-      <Field label="저자 (한 줄에 한 명, Family, Given)">
-        <textarea className={`${inputCls} h-28 resize-y font-mono text-[12px]`} value={f.authors} onChange={set('authors')} placeholder={'Jo, Young Jae\nShin, Jae-Ho'} />
+      <Field label="저자" hint="한 줄에 한 명씩 '성, 이름' 순서로 적어 주세요.">
+        <textarea className={`${inputCls} h-28 resize-y`} value={f.authors} onChange={set('authors')} placeholder={'Jo, Young Jae\nShin, Jae-Ho'} />
       </Field>
       <div className="grid grid-cols-[100px_1fr] gap-3">
         <Field label="연도">
@@ -93,20 +93,20 @@ export function MetadataDialog({ paper, onClose, onSaved }: { paper: PaperDto; o
         </Field>
       </div>
       <div className="grid grid-cols-3 gap-3">
-        <Field label="권 (volume)">
+        <Field label="권">
           <input className={inputCls} value={f.volume} onChange={set('volume')} />
         </Field>
-        <Field label="호 (issue)">
+        <Field label="호">
           <input className={inputCls} value={f.issue} onChange={set('issue')} />
         </Field>
-        <Field label="쪽 (pages)">
+        <Field label="쪽">
           <input className={inputCls} value={f.pages} onChange={set('pages')} />
         </Field>
       </div>
-      <Field label="DOI" hint="새로 넣으면 OpenAlex에서 ID(OpenAlex·PMID·PMCID)를 같이 채웁니다.">
-        <input className={inputCls} value={f.doi} onChange={set('doi')} placeholder="10.xxxx/…" />
+      <Field label="DOI" hint="DOI를 입력하면 관련 정보를 자동으로 채웁니다.">
+        <input className={inputCls} value={f.doi} onChange={set('doi')} placeholder="예: 10.1038/s41586-020-2649-2" />
       </Field>
-      {error && <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">{error}</div>}
+      {error && <div className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[13px] text-danger">{error}</div>}
     </Dialog>
   );
 }

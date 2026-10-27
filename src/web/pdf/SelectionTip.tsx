@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePdfHighlighterContext, type GhostHighlight, type PdfSelection } from 'react-pdf-highlighter-extended';
 import { postSse } from '../api';
+import { ModelBadge } from '../components/ModelBadge';
+import { TermCard } from '../components/TermCard';
 import { usePaper } from '../state/paper';
 import { useViewer } from '../state/viewer';
-import { HIGHLIGHT_COLORS, type HighlightColor, type HighlightPosition } from '../types';
+import { HIGHLIGHT_COLORS, HIGHLIGHT_NAMES, type HighlightColor, type HighlightPosition } from '../types';
+import type { MadeBy } from '../../shared/models';
 
-type Mode = 'menu' | 'translate' | 'ask' | 'memo';
+type Mode = 'menu' | 'translate' | 'term' | 'ask' | 'memo';
 
-const btn = 'rounded px-2 py-1 text-[12.5px] font-medium text-stone-700 hover:bg-stone-100';
+/** Longest selection offered as a vocabulary term. */
+const TERM_MAX = 80;
+
+const btn = 'rounded-lg px-2 py-1 text-[12.5px] font-medium text-fg hover:bg-hover active:scale-[0.97] transition-[transform,background-color] duration-150';
 
 /** Tip shown for a fresh text or area selection. Mounted anew for each selection. */
 export function SelectionTip() {
@@ -20,6 +26,7 @@ export function SelectionTip() {
   const [mode, setMode] = useState<Mode>('menu');
   const [translation, setTranslation] = useState('');
   const [translating, setTranslating] = useState(false);
+  const [translatedBy, setTranslatedBy] = useState<MadeBy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [question, setQuestion] = useState('');
   const [note, setNote] = useState('');
@@ -85,8 +92,11 @@ export function SelectionTip() {
           signal: ac.signal,
           onEvent: (event, data) => {
             if (event === 'delta') setTranslation((t) => t + (data as { text: string }).text);
-            else if (event === 'done') setTranslation((data as { text: string }).text);
-            else if (event === 'error') setError((data as { message: string }).message);
+            else if (event === 'done') {
+              const done = data as { text: string; by: MadeBy };
+              setTranslation(done.text);
+              setTranslatedBy(done.by);
+            } else if (event === 'error') setError((data as { message: string }).message);
           },
         },
       );
@@ -115,9 +125,9 @@ export function SelectionTip() {
       {(Object.keys(HIGHLIGHT_COLORS) as HighlightColor[]).map((c) => (
         <button
           key={c}
-          title={`${c} 하이라이트`}
-          aria-label={`${c} 하이라이트`}
-          className={`h-4 w-4 rounded-full ring-1 ring-black/15 hover:scale-110 ${active === c ? 'ring-2 ring-stone-800' : ''}`}
+          title={`${HIGHLIGHT_NAMES[c]} 하이라이트`}
+          aria-label={`${HIGHLIGHT_NAMES[c]} 하이라이트`}
+          className={`h-4 w-4 rounded-full ring-1 ring-fg/15 transition-transform duration-150 hover:scale-110 ${active === c ? 'ring-2 ring-fg' : ''}`}
           style={{ background: HIGHLIGHT_COLORS[c] }}
           onClick={() => onPick(c)}
         />
@@ -128,7 +138,7 @@ export function SelectionTip() {
   return (
     <div
       ref={boxRef}
-      className="max-w-[420px] rounded-lg border border-stone-200 bg-white p-1 shadow-xl"
+      className="pr-tip max-w-[420px] rounded-xl border border-line bg-raised p-1 shadow-pop"
       onKeyDown={(e) => {
         if (e.key === 'Escape') close();
       }}
@@ -143,6 +153,17 @@ export function SelectionTip() {
           <button className={btn} onClick={explain}>
             설명
           </button>
+          {!isArea && text.trim().length <= TERM_MAX && (
+            <button
+              className={btn}
+              onClick={() => {
+                ghost();
+                setMode('term');
+              }}
+            >
+              용어
+            </button>
+          )}
           {!isArea && (
             <button
               className={btn}
@@ -154,9 +175,9 @@ export function SelectionTip() {
               질문
             </button>
           )}
-          <div className="mx-0.5 h-4 w-px bg-stone-200" />
+          <div className="mx-0.5 h-4 w-px bg-line" />
           {colorDots((c) => void saveHighlight(c))}
-          <div className="mx-0.5 h-4 w-px bg-stone-200" />
+          <div className="mx-0.5 h-4 w-px bg-line" />
           <button
             className={btn}
             onClick={() => {
@@ -171,11 +192,14 @@ export function SelectionTip() {
 
       {mode === 'translate' && (
         <div className="w-[400px] p-2">
-          <div className="max-h-[260px] overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed text-stone-800">
-            {translation || (translating ? <span className="text-stone-400">번역 중…</span> : null)}
+          <div className="max-h-[260px] overflow-y-auto whitespace-pre-wrap text-[13px] leading-relaxed text-fg">
+            {translation || (translating ? <span className="text-fg-dim">번역 중…</span> : null)}
           </div>
-          {error && <div className="mt-1 text-[12px] text-red-600">{error}</div>}
-          <div className="mt-2 flex justify-end gap-1">
+          {error && <div className="mt-1 text-[12px] text-danger">{error}</div>}
+          <div className="mt-2 flex items-center justify-end gap-1">
+            <span className="mr-auto min-w-0 truncate">
+              <ModelBadge by={translatedBy} />
+            </span>
             <button className={btn} disabled={!translation} onClick={() => void navigator.clipboard.writeText(translation)}>
               복사
             </button>
@@ -186,11 +210,13 @@ export function SelectionTip() {
         </div>
       )}
 
+      {mode === 'term' && <TermCard paperId={paper.id} term={text.trim()} page={page} />}
+
       {mode === 'ask' && (
         <div className="w-[380px] p-1.5">
           <input
             autoFocus
-            className="w-full rounded border border-stone-300 px-2 py-1.5 text-[13px] outline-none focus:border-blue-500"
+            className="w-full rounded-md border border-line-strong bg-sunken px-2 py-1.5 text-[13px] text-fg outline-none transition-[border-color] duration-150 placeholder:text-fg-dim focus:border-focus"
             placeholder="이 부분에 대해 질문… (Enter)"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
@@ -205,7 +231,7 @@ export function SelectionTip() {
         <div className="w-[340px] p-1.5">
           <textarea
             autoFocus
-            className="h-20 w-full resize-none rounded border border-stone-300 px-2 py-1.5 text-[13px] outline-none focus:border-blue-500"
+            className="h-20 w-full resize-none rounded-md border border-line-strong bg-sunken px-2 py-1.5 text-[13px] text-fg outline-none transition-[border-color] duration-150 placeholder:text-fg-dim focus:border-focus"
             placeholder="메모"
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -216,15 +242,15 @@ export function SelectionTip() {
               <button className={btn} onClick={close}>
                 취소
               </button>
-              <button className="rounded bg-stone-900 px-2.5 py-1 text-[12.5px] font-medium text-white hover:bg-stone-700" onClick={() => void saveHighlight(memoColor, note.trim() || undefined)}>
+              <button className="rounded-lg bg-inverse px-2.5 py-1 text-[12.5px] font-medium text-inverse-fg transition-[transform,opacity] duration-150 hover:opacity-90 active:scale-[0.97]" onClick={() => void saveHighlight(memoColor, note.trim() || undefined)}>
                 저장
               </button>
             </div>
           </div>
-          {error && <div className="mt-1 text-[12px] text-red-600">{error}</div>}
+          {error && <div className="mt-1 text-[12px] text-danger">{error}</div>}
         </div>
       )}
-      {mode === 'menu' && error && <div className="px-2 pb-1 text-[12px] text-red-600">{error}</div>}
+      {mode === 'menu' && error && <div className="px-2 pb-1 text-[12px] text-danger">{error}</div>}
     </div>
   );
 }

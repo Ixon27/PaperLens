@@ -1,5 +1,5 @@
 appId: io.github.ixon27.paper-reader
-productName: Paper Reader
+productName: PaperLens
 electronVersion: 45.0.0
 directories:
   app: build-desktop/app
@@ -21,7 +21,7 @@ npmRebuild: false
 nodeGypRebuild: false
 forceCodeSigning: false
 publish: null
-artifactName: Paper-Reader-${version}-${arch}.${ext}
+artifactName: PaperLens-${version}-${arch}.${ext}
 mac:
   category: public.app-category.productivity
   icon: build-assets/icon.icns
@@ -38,7 +38,7 @@ mac:
       NSAllowsArbitraryLoads: false
       NSAllowsLocalNetworking: true
 dmg:
-  title: Paper Reader
+  title: PaperLens
   sign: false
   filesystem: HFS+
   window:
@@ -52,3 +52,18 @@ dmg:
       y: 180
       type: link
       path: /Applications
+win:
+  icon: build-assets/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  # Per-user install: no administrator prompt, uninstalls from Windows Settings like any app.
+  oneClick: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: PaperLens
+  # App data (%APPDATA%\paper-reader) stays on uninstall, as on macOS.
+  deleteAppDataOnUninstall: false
+  artifactName: PaperLens-${version}-windows-${arch}-setup.${ext}

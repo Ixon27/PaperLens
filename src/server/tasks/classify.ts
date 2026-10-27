@@ -38,7 +38,7 @@ const FALLBACK: ClassifyResult = { types: ['wetlab'], reason: '분류 실패 —
 export async function classifyPaper(paper: PaperRow): Promise<ClassifyResult> {
   const P = loadPrompt('classify');
   const prompt = fill(P.PROMPT, { title: paper.title, abstract: abstractOrPageOne(paper), methods_excerpt: methodsExcerpt(paper.id) });
-  const out = await runLlm({ system: '너는 연구 논문의 연구 유형을 분류한다. JSON 하나로만 답한다.', prompt, profile: 'quick' });
+  const { text: out } = await runLlm({ system: '너는 연구 논문의 연구 유형을 분류한다. JSON 하나로만 답한다.', prompt, profile: 'quick' });
   let result: ClassifyResult = FALLBACK;
   try {
     const parsed = parseJsonLoose<{ types?: unknown; reason?: unknown }>(out);

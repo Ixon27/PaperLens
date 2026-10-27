@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '빌드하고 배포할 기존 버전 태그 (예: v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-macos:
+    # Native runners avoid cross-architecture optional-addon installation.
+    # Current labels: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      TARGET_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '26'
+          cache: npm
+      - name: Validate tag and native architecture
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const { version } = JSON.parse(readFileSync("package.json", "utf8"));
+            if (process.env.RELEASE_TAG !== `v${version}`) throw new Error("태그와 package.json 버전이 다릅니다");
+            if (process.arch !== process.env.TARGET_ARCH) throw new Error("네이티브 러너 아키텍처가 다릅니다");
+          '
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Build ad-hoc signed installers (not notarized)
+        run: npm run dist:mac -- --${{ matrix.arch }} --publish never
+      - name: Smoke the packaged app (SQLite, PDF runtime, window, quit)
+        run: |
+          if [[ "$TARGET_ARCH" == arm64 ]]; then dir=mac-arm64; else dir=mac; fi
+          ELECTRON_RUN_AS_NODE=1 "release/$dir/PaperLens.app/Contents/MacOS/PaperLens" scripts/smoke-packaged-runtime.mjs
+      - name: Generate SHA-256 checksums
+        working-directory: release
+        run: shasum -a 256 *.dmg *.zip > SHA256SUMS-macos-${{ matrix.arch }}.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/SHA256SUMS-*.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '26'
+          cache: npm
+      - name: Validate tag
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const { version } = JSON.parse(readFileSync("package.json", "utf8"));
+            if (process.env.RELEASE_TAG !== `v${version}`) throw new Error("태그와 package.json 버전이 다릅니다");
+          '
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Build the installer (unsigned)
+        run: npm run dist:win -- --x64 --publish never
+      - name: Smoke the packaged app (SQLite, PDF runtime, window, quit)
+        run: ELECTRON_RUN_AS_NODE=1 release/win-unpacked/PaperLens.exe scripts/smoke-packaged-runtime.mjs
+      - name: Generate SHA-256 checksums
+        working-directory: release
+        run: sha256sum *.exe > SHA256SUMS-windows-x64.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: |
+            release/*.exe
+            release/SHA256SUMS-*.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: installers
+          merge-multiple: true
+      - name: Publish installers and checksums
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --title "PaperLens $RELEASE_TAG" --notes '**macOS 13 이상**: Apple Silicon은 `arm64`, Intel은 `x64` DMG를 받아 PaperLens를 Applications로 끌어 설치합니다. Apple 인증서 없이 ad-hoc 서명했으며 공증되지 않았습니다. 실행이 차단되면 시스템 설정 → 개인정보 보호 및 보안에서 허용하세요.
+
+          **Windows 10·11 (64비트)**: `windows-x64-setup.exe`를 받아 실행하면 관리자 권한 없이 설치되고 시작 메뉴·바탕화면에 바로가기가 생깁니다. 코드 서명 인증서가 없어 "Windows의 PC 보호" 창이 뜨면 추가 정보 → 실행을 누르세요.
+
+          Node·Homebrew는 필요하지 않습니다. AI 기능은 사용자가 직접 설치·로그인한 Claude Code 또는 Codex CLI를 사용합니다. SHA256SUMS 파일로 다운로드 무결성을 확인할 수 있습니다.'
+          fi
+          gh release upload "$RELEASE_TAG" installers/*.dmg installers/*.zip installers/*.exe installers/SHA256SUMS-*.txt --clobber

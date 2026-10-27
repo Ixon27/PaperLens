@@ -2,10 +2,11 @@ import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { nanoid } from 'nanoid';
 import { PATHS } from '../config';
-import { db, getPaper, now, refreshFts, tx, type Author } from '../db';
+import { db, getBlocks, getPaper, now, refreshFts, tx, type Author } from '../db';
 import { HttpError } from '../http-error';
 import { activeJob, startJob, type JobCtx } from '../jobs';
 import { extractBlocks, type ExtractionResult } from '../pdf/extract';
+import { LAYOUT_VERSION } from '../pdf/layout';
 import * as arxiv from '../services/arxiv';
 import * as crossref from '../services/crossref';
 import { getBuffer } from '../services/http';
@@ -97,19 +98,92 @@ function splitName(display: string): Author {
 
 const pdfPath = (paperId: string) => join(PATHS.pdfs, `${paperId}.pdf`);
 
-/** Extract text blocks from the paper's PDF into `blocks`, `page_count` and FTS. */
-export async function ingestPdf(paperId: string, ctx: JobCtx, extracted?: ExtractionResult): Promise<void> {
-  ctx.progress(0.7, '텍스트 추출 중');
-  const { pageCount, blocks } = extracted ?? await extractBlocks(pdfPath(paperId));
+/** Replace a paper's blocks (dropping translations, which are keyed to them) and refresh FTS. */
+function storeBlocks(paperId: string, { pageCount, blocks }: ExtractionResult): void {
   tx(() => {
     db.prepare('DELETE FROM translations WHERE paper_id=?').run(paperId);
     db.prepare('DELETE FROM blocks WHERE paper_id=?').run(paperId);
-    const ins = db.prepare('INSERT INTO blocks(paper_id,idx,page,text,lines,page_w,page_h,is_ref) VALUES(?,?,?,?,?,?,?,?)');
-    for (const b of blocks) ins.run(paperId, b.idx, b.page, b.text, JSON.stringify(b.lines), b.pageW, b.pageH, b.isRef ? 1 : 0);
-    db.prepare('UPDATE papers SET pdf_file=?, page_count=?, updated_at=? WHERE id=?').run(`${paperId}.pdf`, pageCount, now(), paperId);
+    const ins = db.prepare('INSERT INTO blocks(paper_id,idx,page,text,lines,page_w,page_h,is_ref,kind,spans) VALUES(?,?,?,?,?,?,?,?,?,?)');
+    for (const b of blocks) {
+      ins.run(paperId, b.idx, b.page, b.text, JSON.stringify(b.lines), b.pageW, b.pageH, b.isRef ? 1 : 0, b.kind, JSON.stringify(b.spans));
+    }
+    db.prepare('UPDATE papers SET pdf_file=?, page_count=?, layout_version=?, updated_at=? WHERE id=?')
+      .run(`${paperId}.pdf`, pageCount, LAYOUT_VERSION, now(), paperId);
   });
   refreshFts(paperId);
-  ctx.progress(1, blocks.length ? `${pageCount}쪽 · 문단 ${blocks.length}개` : '텍스트 레이어가 없는 PDF(스캔본)입니다 — AI 기능을 쓸 수 없습니다');
+}
+
+/** Extract text blocks from the paper's PDF into `blocks`, `page_count` and FTS. */
+export async function ingestPdf(paperId: string, ctx: JobCtx, extracted?: ExtractionResult): Promise<void> {
+  ctx.progress(0.7, '텍스트 추출 중');
+  const result = extracted ?? await extractBlocks(pdfPath(paperId));
+  storeBlocks(paperId, result);
+  const paragraphs = result.blocks.filter((b) => b.kind === 'body').length;
+  ctx.progress(1, result.blocks.length ? `${result.pageCount}쪽 · 문단 ${paragraphs}개` : '텍스트 레이어가 없는 PDF(스캔본)입니다 — AI 기능을 쓸 수 없습니다');
+}
+
+const relayouts = new Map<string, Promise<void>>();
+
+/** Only exact page/text matches can reuse offsets; repeated text also needs its original geometry. */
+function upgradeBlockSpans(paperId: string, { blocks }: ExtractionResult): void {
+  const stored = getBlocks(paperId);
+  const keyOf = (block: { page: number; text: string }) => JSON.stringify([block.page, block.text]);
+  const extractedByText = new Map<string, ExtractionResult['blocks']>();
+  const storedCounts = new Map<string, number>();
+  for (const block of blocks) {
+    const key = keyOf(block);
+    const group = extractedByText.get(key);
+    if (group) group.push(block);
+    else extractedByText.set(key, [block]);
+  }
+  for (const block of stored) {
+    const key = keyOf(block);
+    storedCounts.set(key, (storedCounts.get(key) ?? 0) + 1);
+  }
+  const update = db.prepare('UPDATE blocks SET spans=? WHERE paper_id=? AND idx=?');
+  for (const block of stored) {
+    const key = keyOf(block);
+    const candidates = extractedByText.get(key) ?? [];
+    const unique = candidates.length === 1 && storedCounts.get(key) === 1;
+    // An index alone cannot distinguish repeated text after block boundaries have changed.
+    const matches = unique ? candidates : candidates.filter((candidate) =>
+      candidate.idx === block.idx &&
+      candidate.pageW === block.page_w && candidate.pageH === block.page_h &&
+      JSON.stringify(candidate.lines) === block.lines);
+    if (matches.length === 1) update.run(JSON.stringify(matches[0].spans), paperId, block.idx);
+  }
+  // This layout's metadata was attempted even if some old blocks could not be matched safely.
+  db.prepare('UPDATE papers SET layout_version=? WHERE id=?').run(LAYOUT_VERSION, paperId);
+}
+
+/**
+ * Upgrade old PDF layouts locally. Untranslated/forced papers replace their blocks; translated
+ * papers retain every block and translation and only gain trustworthy text-layer spans.
+ * Never commits under an import or translation job, including one started during extraction.
+ */
+export function ensureCurrentLayout(paperId: string, { force = false }: { force?: boolean } = {}): Promise<void> {
+  const paper = getPaper(paperId);
+  if (!paper?.pdf_file || paper.layout_version >= LAYOUT_VERSION) return Promise.resolve();
+  if (activeJob(paperId, 'import') || activeJob(paperId, 'translation')) return Promise.resolve();
+  let pending = relayouts.get(paperId);
+  if (!pending) {
+    pending = extractBlocks(pdfPath(paperId))
+      .then((extracted) => {
+        const current = getPaper(paperId);
+        if (!current?.pdf_file || current.pdf_file !== paper.pdf_file || current.layout_version >= LAYOUT_VERSION) return;
+        if (activeJob(paperId, 'import') || activeJob(paperId, 'translation')) return;
+        if (!force && db.prepare('SELECT 1 FROM translations WHERE paper_id=? LIMIT 1').get(paperId)) {
+          tx(() => upgradeBlockSpans(paperId, extracted));
+        } else {
+          storeBlocks(paperId, extracted);
+        }
+      })
+      // The existing blocks stay usable; the next open tries again.
+      .catch(() => {})
+      .finally(() => relayouts.delete(paperId));
+    relayouts.set(paperId, pending);
+  }
+  return pending;
 }
 
 async function downloadPdf(url: string): Promise<Buffer | null> {

@@ -25,16 +25,36 @@ export const PORT = 4317;
 
 for (const dir of [dbDir, PATHS.pdfs, PATHS.images, PATHS.tmp]) mkdirSync(dir, { recursive: true });
 
+/** File names a command can have on this platform (Windows resolves `claude` to `claude.exe`/`claude.cmd`). */
+function executableNames(name: string): string[] {
+  if (process.platform !== 'win32') return [name];
+  const exts = (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';').filter(Boolean);
+  return exts.map((ext) => name + ext.toLowerCase());
+}
+
 function findBinary(name: string, candidates: string[]): string | null {
   for (const c of candidates.map(expand)) if (existsSync(c)) return c;
   for (const dir of (process.env.PATH || '').split(delimiter)) {
-    if (dir && existsSync(join(dir, name))) return join(dir, name);
+    if (!dir) continue;
+    for (const file of executableNames(name)) if (existsSync(join(dir, file))) return join(dir, file);
   }
   return null;
 }
 
+/** Where the official installers put each CLI, for apps started without the user's shell PATH. */
+const appData = process.env.APPDATA || join(homedir(), 'AppData', 'Roaming');
+const CANDIDATES = process.platform === 'win32'
+  ? {
+      claude: [join(homedir(), '.local', 'bin', 'claude.exe'), join(appData, 'npm', 'claude.cmd')],
+      codex: [join(appData, 'npm', 'codex.cmd'), join(homedir(), '.local', 'bin', 'codex.exe')],
+    }
+  : {
+      claude: ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '~/.local/bin/claude'],
+      codex: ['~/.local/bin/codex', '/opt/homebrew/bin/codex'],
+    };
+
 export const BIN = {
-  get claude() { return findBinary('claude', ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '~/.local/bin/claude']); },
-  get codex() { return findBinary('codex', ['~/.local/bin/codex', '/opt/homebrew/bin/codex']); },
+  get claude() { return findBinary('claude', CANDIDATES.claude); },
+  get codex() { return findBinary('codex', CANDIDATES.codex); },
 };
 

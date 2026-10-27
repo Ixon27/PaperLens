@@ -1,7 +1,98 @@
 @import 'tailwindcss';
 
+/* Theme: light by default; data-theme="dark" (resolved by state/theme.ts) switches tokens. */
+:root {
+  color-scheme: light;
+  --pr-canvas: #f6f7f9;
+  --pr-surface: #ffffff;
+  --pr-raised: #ffffff;
+  --pr-sunken: #eef0f3;
+  --pr-hover: rgb(20 23 28 / 0.05);
+  --pr-line: #e3e6eb;
+  --pr-line-strong: #cfd4dc;
+  --pr-fg: #14171c;
+  --pr-fg-muted: #5b6270;
+  --pr-fg-dim: #8a919d;
+  --pr-accent: #0077b6;
+  --pr-accent-fg: #ffffff;
+  --pr-accent-soft: rgb(0 119 182 / 0.1);
+  --pr-focus: #1a9bdc;
+  --pr-inverse: #14171c;
+  --pr-inverse-fg: #ffffff;
+  --pr-success: #0f9d58;
+  --pr-success-soft: rgb(15 157 88 / 0.1);
+  --pr-warning: #b7791f;
+  --pr-warning-soft: rgb(183 121 31 / 0.12);
+  --pr-danger: #d93636;
+  --pr-danger-soft: rgb(217 54 54 / 0.1);
+  --pr-effort: #a8812f;
+  --pr-scrim: rgb(15 18 24 / 0.32);
+  --pr-shadow-pop: 0 12px 32px -8px rgb(15 18 24 / 0.18), 0 0 0 1px rgb(15 18 24 / 0.04);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --pr-canvas: #15181f;
+  --pr-surface: #1c2026;
+  --pr-raised: #21242c;
+  --pr-sunken: #111419;
+  --pr-hover: rgb(255 255 255 / 0.06);
+  --pr-line: #2e3138;
+  --pr-line-strong: #3d414a;
+  --pr-fg: #e6e8ee;
+  --pr-fg-muted: #98a0b0;
+  --pr-fg-dim: #687080;
+  --pr-accent: #4ed4ff;
+  --pr-accent-fg: #0b1015;
+  --pr-accent-soft: rgb(78 212 255 / 0.14);
+  --pr-focus: #23b2ff;
+  --pr-inverse: #e8ecf4;
+  --pr-inverse-fg: #15181f;
+  --pr-success: #06ee7a;
+  --pr-success-soft: rgb(6 238 122 / 0.14);
+  --pr-warning: #f5c46b;
+  --pr-warning-soft: rgb(245 196 107 / 0.14);
+  --pr-danger: #ff6b6b;
+  --pr-danger-soft: rgb(255 107 107 / 0.14);
+  --pr-effort: #d8c090;
+  --pr-scrim: rgb(5 7 10 / 0.55);
+  --pr-shadow-pop: 0 16px 48px -12px rgb(0 0 0 / 0.6);
+}
+
+@theme inline {
+  --color-canvas: var(--pr-canvas);
+  --color-surface: var(--pr-surface);
+  --color-raised: var(--pr-raised);
+  --color-sunken: var(--pr-sunken);
+  --color-hover: var(--pr-hover);
+  --color-line: var(--pr-line);
+  --color-line-strong: var(--pr-line-strong);
+  --color-fg: var(--pr-fg);
+  --color-fg-muted: var(--pr-fg-muted);
+  --color-fg-dim: var(--pr-fg-dim);
+  --color-accent: var(--pr-accent);
+  --color-accent-fg: var(--pr-accent-fg);
+  --color-accent-soft: var(--pr-accent-soft);
+  --color-focus: var(--pr-focus);
+  --color-inverse: var(--pr-inverse);
+  --color-inverse-fg: var(--pr-inverse-fg);
+  --color-success: var(--pr-success);
+  --color-success-soft: var(--pr-success-soft);
+  --color-warning: var(--pr-warning);
+  --color-warning-soft: var(--pr-warning-soft);
+  --color-danger: var(--pr-danger);
+  --color-danger-soft: var(--pr-danger-soft);
+  --color-effort: var(--pr-effort);
+  --color-scrim: var(--pr-scrim);
+  --shadow-pop: var(--pr-shadow-pop);
+}
+
 @theme {
-  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Segoe UI', sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Apple SD Gothic Neo', 'Pretendard Variable', Pretendard, 'Segoe UI', 'Malgun Gothic', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 html,
@@ -10,13 +101,51 @@ body,
   height: 100%;
 }
 
-body {
-  @apply bg-stone-50 text-stone-900 antialiased;
+@layer base {
+  body {
+    @apply bg-canvas text-fg antialiased;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--pr-accent) 28%, transparent);
+  }
+
+  /* In the base layer so `outline-none` + ring utilities on inputs still win. */
+  :focus-visible {
+    outline: 2px solid var(--pr-focus);
+    outline-offset: 2px;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--pr-line-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+
+/* macOS window: the header doubles as the title bar (Windows keeps its native frame). */
+html[data-desktop='darwin'] .app-drag {
+  -webkit-app-region: drag;
+}
+html[data-desktop='darwin'] .app-drag :is(a, button, input, select, textarea),
+html[data-desktop='darwin'] .no-drag {
+  -webkit-app-region: no-drag;
+}
+html[data-desktop='darwin'] .app-header {
+  padding-left: 84px;
 }
 
 /* Markdown body (analysis, chat) */
 .md {
-  @apply text-[14px] leading-relaxed break-words;
+  @apply text-[14.5px] leading-[1.75] break-words;
 }
 .md h1,
 .md h2,
@@ -24,16 +153,16 @@ body {
   @apply font-bold mt-5 mb-2;
 }
 .md h4 {
-  @apply text-[16px] font-bold mt-6 mb-2 pb-1 border-b border-stone-200;
+  @apply text-[16px] font-bold mt-6 mb-2 pb-1 border-b border-line;
 }
 .md h5 {
-  @apply text-[15px] font-semibold mt-4 mb-1.5;
+  @apply text-[14.5px] font-semibold mt-5 mb-1.5;
 }
 .md h6 {
-  @apply text-[14px] font-semibold mt-3 mb-1 text-stone-700;
+  @apply text-[14px] font-semibold mt-4 mb-1;
 }
 .md p {
-  @apply my-1.5;
+  @apply my-2;
 }
 .md ul {
   @apply list-disc pl-5 my-1.5;
@@ -42,16 +171,25 @@ body {
   @apply list-decimal pl-5 my-1.5;
 }
 .md li {
-  @apply my-0.5;
+  @apply my-1;
+}
+.md li > p {
+  @apply my-0;
+}
+.md strong {
+  @apply font-semibold text-fg;
 }
 .md blockquote {
-  @apply border-l-4 border-stone-300 pl-3 text-stone-600 my-2;
+  @apply border-l-4 border-line-strong pl-3 text-fg-muted my-2;
+}
+.md tr:nth-child(even) td {
+  @apply bg-sunken;
 }
 .md code {
-  @apply bg-stone-100 rounded px-1 text-[12.5px];
+  @apply bg-sunken rounded px-1 text-[12.5px];
 }
 .md pre {
-  @apply bg-stone-100 rounded p-2 overflow-x-auto my-2;
+  @apply bg-sunken rounded p-2 overflow-x-auto my-2;
 }
 .md pre code {
   @apply bg-transparent p-0;
@@ -61,13 +199,13 @@ body {
 }
 .md th,
 .md td {
-  @apply border border-stone-300 px-2 py-1 align-top;
+  @apply border border-line px-2 py-1 align-top;
 }
 .md th {
-  @apply bg-stone-100;
+  @apply bg-sunken;
 }
 .md a {
-  @apply text-blue-700 underline;
+  @apply text-accent underline;
 }
 .md .katex-display {
   @apply overflow-x-auto overflow-y-hidden py-1;
@@ -75,8 +213,230 @@ body {
 
 /* PDF viewer: let the highlighter fill its pane */
 .pdf-pane .PdfHighlighter {
-  background-color: #e7e5e4;
+  background-color: var(--pr-sunken);
+}
+/* The highlighter ships a dark scrollbar track; match the app's thin themed bars instead. */
+.pdf-pane .PdfHighlighter::-webkit-scrollbar-track,
+.pdf-pane .PdfHighlighter::-webkit-scrollbar-track-piece {
+  background-color: transparent;
+}
+.pdf-pane .PdfHighlighter::-webkit-scrollbar-thumb {
+  background-color: var(--pr-line-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+.pdf-pane .PdfHighlighter::-webkit-scrollbar-thumb:hover {
+  background-color: var(--pr-fg-dim);
 }
 .pdf-pane .PdfHighlighter__tip-container {
   z-index: 20;
+}
+/* Explanation markers and cards: scroll with the pages, under the selection tip. */
+.pr-explain-host {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 8;
+  pointer-events: none;
+}
+.pr-explain-host > * {
+  pointer-events: auto;
+}
+/* The source sentence matching the hovered translation (CSS Custom Highlight on the text layer). */
+::highlight(pr-sync) {
+  background-color: rgb(35 178 255 / 0.28);
+}
+
+/* Motion */
+
+/* Popover (AI picker) */
+.pr-pop {
+  transform-origin: var(--pr-origin, top);
+  transition:
+    opacity 180ms var(--ease-out),
+    transform 180ms var(--ease-out);
+}
+@starting-style {
+  .pr-pop {
+    opacity: 0;
+    transform: translateY(var(--pr-pop-dy, -4px)) scale(0.97);
+  }
+}
+.pr-pop[data-closing] {
+  opacity: 0;
+  transform: translateY(var(--pr-pop-dy, -4px)) scale(0.97);
+  transition-duration: 120ms;
+}
+
+/* Selection tip, citation popover: unmounted by the library, so entry only. */
+.pr-tip {
+  transition:
+    opacity 120ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+@starting-style {
+  .pr-tip {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+/* Dialog */
+.pr-dialog {
+  transition:
+    opacity 200ms var(--ease-out),
+    transform 200ms var(--ease-out);
+}
+@starting-style {
+  .pr-dialog {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+.pr-dialog[data-closing] {
+  opacity: 0;
+  transform: scale(0.97);
+  transition-duration: 150ms;
+}
+.pr-scrim {
+  transition: opacity 200ms var(--ease-out);
+}
+@starting-style {
+  .pr-scrim {
+    opacity: 0;
+  }
+}
+.pr-scrim[data-closing] {
+  opacity: 0;
+  transition-duration: 150ms;
+}
+
+/* Toast */
+.pr-toast {
+  transition:
+    opacity 220ms var(--ease-out),
+    transform 220ms var(--ease-out);
+}
+@starting-style {
+  .pr-toast {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.pr-toast[data-closing] {
+  opacity: 0;
+  transform: translateY(8px);
+  transition-duration: 160ms;
+}
+
+/* One-shot entries. `backwards`, never `both`: inline styles must win after the run. */
+.pr-row-new {
+  animation: pr-row-in 240ms var(--ease-out) backwards;
+}
+@keyframes pr-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.pr-panel-enter {
+  animation: pr-panel-in 300ms var(--ease-drawer) backwards;
+}
+@keyframes pr-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+.pr-fade-in {
+  animation: pr-fade 200ms ease-out backwards;
+}
+@keyframes pr-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Accordion */
+.pr-accordion {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 220ms var(--ease-out);
+}
+.pr-accordion[data-open] {
+  grid-template-rows: 1fr;
+}
+.pr-accordion > * {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Liquid drop */
+.pr-liquid {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 38%;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(105%);
+  transition: transform 520ms var(--ease-drawer);
+}
+.pr-liquid[data-active] {
+  transform: translateY(0);
+}
+/* Mounted already active (window overlay): still rise from below. */
+@starting-style {
+  .pr-liquid[data-active] {
+    transform: translateY(105%);
+  }
+}
+.pr-liquid-bob {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  animation: pr-bob 2.6s ease-in-out infinite alternate;
+}
+.pr-wave {
+  flex: none;
+  width: 200%;
+  height: 28px;
+  animation: pr-wave-x 6s linear infinite;
+}
+.pr-wave--back {
+  position: absolute;
+  top: -8px;
+  left: 0;
+  opacity: 0.55;
+  animation-duration: 9s;
+  animation-direction: reverse;
+}
+@keyframes pr-wave-x {
+  to {
+    transform: translateX(-50%);
+  }
+}
+@keyframes pr-bob {
+  to {
+    transform: translateY(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pr-liquid,
+  .pr-ripple {
+    display: none;
+  }
+  .pr-pop,
+  .pr-tip,
+  .pr-dialog,
+  .pr-toast,
+  .pr-row-new,
+  .pr-panel-enter {
+    transform: none !important;
+  }
 }

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, renameSync, rmSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 if (process.platform !== 'darwin') throw new Error('macOS 앱 설치는 macOS에서만 가능합니다.');
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const name = 'Paper Reader';
+const name = 'PaperLens';
+/** Earlier names of this app: the install replaces them, so one copy stays in Applications. */
+const formerNames = ['Paper Reader'];
 const bundleId = 'io.github.ixon27.paper-reader';
 const source = resolve(process.argv[2] ?? join(root, 'release', process.arch === 'arm64' ? 'mac-arm64' : 'mac', `${name}.app`));
 const app = join(homedir(), 'Applications', `${name}.app`);
@@ -32,16 +34,20 @@ if (source === app || bundleIdentifier(source) !== bundleId || !existsSync(join(
 if (entryExists(app) && (lstatSync(app).isSymbolicLink() || bundleIdentifier(app) !== bundleId)) {
   throw new Error(`${app} 에 다른 앱이나 바로가기가 있습니다. 덮어쓰지 않았습니다.`);
 }
+const former = formerNames
+  .map((n) => ({ app: join(homedir(), 'Applications', `${n}.app`), shortcut: join(homedir(), 'Desktop', `${n}.app`) }))
+  .filter(({ app }) => entryExists(app) && !lstatSync(app).isSymbolicLink() && bundleIdentifier(app) === bundleId);
 // Never terminate the user's app or any CLI jobs during an installation.
-const executablePattern = `^${app.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/Contents/MacOS/`;
-let running = false;
-try {
-  execFileSync('/usr/bin/pgrep', ['-f', executablePattern], { stdio: 'ignore' });
-  running = true;
-} catch (error) {
-  if (error.status !== 1) throw error;
+for (const path of [app, ...former.map((f) => f.app)]) {
+  const executablePattern = `^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/Contents/MacOS/`;
+  try {
+    execFileSync('/usr/bin/pgrep', ['-f', executablePattern], { stdio: 'ignore' });
+  } catch (error) {
+    if (error.status === 1) continue;
+    throw error;
+  }
+  throw new Error(`실행 중인 ${name}(또는 이전 이름의 앱)를 Cmd+Q로 종료한 뒤 다시 설치하세요. 앱이나 작업을 강제로 종료하지 않았습니다.`);
 }
-if (running) throw new Error('실행 중인 Paper Reader를 Cmd+Q로 종료한 뒤 다시 설치하세요. 앱이나 작업을 강제로 종료하지 않았습니다.');
 
 mkdirSync(dirname(app), { recursive: true });
 const staging = mkdtempSync(join(dirname(app), '.paper-reader-install-'));
@@ -63,8 +69,13 @@ try {
   else if (!lstatSync(shortcut).isSymbolicLink() || resolve(dirname(shortcut), readlinkSync(shortcut)) !== app) {
     console.log(`바탕화면에 같은 이름의 항목이 있어 그대로 두었습니다: ${shortcut}`);
   }
+  for (const f of former) {
+    rmSync(f.app, { recursive: true, force: true });
+    if (entryExists(f.shortcut) && lstatSync(f.shortcut).isSymbolicLink() && resolve(dirname(f.shortcut), readlinkSync(f.shortcut)) === f.app) unlinkSync(f.shortcut);
+    console.log(`이전 이름의 앱을 정리했습니다: ${f.app}`);
+  }
   console.log(`설치됨: ${app}`);
-  console.log('바탕화면이나 응용 프로그램 폴더에서 Paper Reader를 여세요. Node·브라우저·원본 저장소는 필요하지 않습니다.');
+  console.log(`바탕화면이나 응용 프로그램 폴더에서 ${name}를 여세요. Node·브라우저·원본 저장소는 필요하지 않습니다.`);
 } finally {
   rmSync(staging, { recursive: true, force: true });
 }

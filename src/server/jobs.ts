@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { db, now } from './db';
 
-export type JobKind = 'import' | 'translation' | 'analysis' | 'mindmap' | 'references';
+export type JobKind = 'import' | 'translation' | 'analysis' | 'summary' | 'mindmap' | 'references' | 'keywords';
 export type JobStatus = 'queued' | 'running' | 'done' | 'error';
 
 export interface JobRow {
