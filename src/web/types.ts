@@ -6,7 +6,7 @@ export interface Author {
   given?: string;
 }
 
-export type JobKind = 'import' | 'translation' | 'analysis' | 'summary' | 'mindmap' | 'references' | 'keywords';
+export type JobKind = 'import' | 'translation' | 'analysis' | 'addons' | 'summary' | 'mindmap' | 'references' | 'keywords' | 'figure' | 'lineage';
 export type JobStatus = 'queued' | 'running' | 'done' | 'error';
 
 export interface JobDto {
@@ -77,6 +77,29 @@ export interface ArtifactDto<T = string> {
   meta: Record<string, unknown>;
   by: MadeBy | null;
   updatedAt: string;
+}
+
+export type LineageRole = 'foundation' | 'method' | 'data' | 'prior' | 'contrast';
+export interface LineageNodeDto {
+  id: string;
+  side: 'ancestor' | 'paper' | 'descendant';
+  title: string;
+  year: number | null;
+  authors: string;
+  venue: string | null;
+  citedBy: number | null;
+  doi: string | null;
+  role: LineageRole | null;
+  note: string;
+  inLibrary: string | null;
+}
+export interface LineageDto {
+  version: 1;
+  source: 'openalex' | 'references';
+  summary: string;
+  nodes: LineageNodeDto[];
+  edges: { from: string; to: string }[];
+  strands: { label: string; ids: string[] }[];
 }
 
 export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink';

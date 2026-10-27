@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Link } from 'wouter';
 import {
   ArrowLeft,
+  ChartScatter,
   FileSearch,
+  GitFork,
   Highlighter,
   Languages,
   MessagesSquare,
@@ -15,13 +17,14 @@ import {
 import { api } from '../api';
 import { btnCls, chipCls, ghostBtnCls } from '../components/Dialog';
 import { ExportDialog } from '../components/ExportDialog';
-import { JobBar } from '../components/JobBar';
+import { JobBar, Spinner } from '../components/JobBar';
 import { LiquidDrop } from '../components/LiquidDrop';
 import { MetadataDialog } from '../components/MetadataDialog';
 import { useToast } from '../components/Toast';
 import { AnalysisPanel } from '../panels/AnalysisPanel';
 import { CitationsPanel } from '../panels/CitationsPanel';
 import { HighlightsPanel } from '../panels/HighlightsPanel';
+import { LineagePanel } from '../panels/LineagePanel';
 import { MindmapPanel } from '../panels/MindmapPanel';
 import { OverviewPanel } from '../panels/OverviewPanel';
 import { TranslationPane } from '../panels/TranslationPane';
@@ -33,10 +36,14 @@ import { useViewer, ViewerProvider, type TabId } from '../state/viewer';
 import type { PaperDto } from '../types';
 import { authorShort } from './Library';
 
+const FiguresPanel = lazy(() => import('../panels/FiguresPanel').then((m) => ({ default: m.FiguresPanel })));
+
 const TABS: { id: TabId; label: string; Icon: LucideIcon; needsText: boolean }[] = [
   { id: 'overview', label: '요약·토론', Icon: MessagesSquare, needsText: true },
   { id: 'analysis', label: '심층 분석', Icon: FileSearch, needsText: true },
+  { id: 'figures', label: '그림', Icon: ChartScatter, needsText: true },
   { id: 'mindmap', label: '마인드맵', Icon: Network, needsText: true },
+  { id: 'lineage', label: '계보', Icon: GitFork, needsText: true },
   { id: 'citations', label: '인용·관련', Icon: Quote, needsText: true },
   { id: 'highlights', label: '하이라이트', Icon: Highlighter, needsText: false },
 ];
@@ -44,7 +51,9 @@ const TABS: { id: TabId; label: string; Icon: LucideIcon; needsText: boolean }[]
 const PANELS: Record<TabId, () => ReactNode> = {
   overview: () => <OverviewPanel />,
   analysis: () => <AnalysisPanel />,
+  figures: () => <Suspense fallback={<Spinner text="불러오는 중…" />}><FiguresPanel /></Suspense>,
   mindmap: () => <MindmapPanel />,
+  lineage: () => <LineagePanel />,
   citations: () => <CitationsPanel />,
   highlights: () => <HighlightsPanel />,
 };

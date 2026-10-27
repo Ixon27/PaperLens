@@ -179,8 +179,11 @@ html[data-desktop='darwin'] .app-header {
 .md strong {
   @apply font-semibold text-fg;
 }
+.md mark {
+  @apply rounded-sm bg-warning-soft px-0.5 text-fg;
+}
 .md blockquote {
-  @apply border-l-4 border-line-strong pl-3 text-fg-muted my-2;
+  @apply my-2 rounded-r-lg border-l-4 border-accent bg-accent-soft/50 py-1.5 pl-3 pr-2 text-fg;
 }
 .md tr:nth-child(even) td {
   @apply bg-sunken;
@@ -248,6 +251,10 @@ html[data-desktop='darwin'] .app-header {
 /* The source sentence matching the hovered translation (CSS Custom Highlight on the text layer). */
 ::highlight(pr-sync) {
   background-color: rgb(35 178 255 / 0.28);
+}
+
+::highlight(pr-source) {
+  background-color: rgb(255 196 0 / 0.42);
 }
 
 /* Motion */

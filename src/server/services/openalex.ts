@@ -15,6 +15,7 @@ export interface OpenAlexWork {
   ids?: { pmid?: string; pmcid?: string };
   keywords?: { display_name: string }[];
   related_works?: string[];
+  referenced_works?: string[];
   authorships?: { author?: { display_name?: string } }[];
 }
 
@@ -33,7 +34,7 @@ export interface WorkSummary {
   authors: string[];
 }
 
-const shortId = (id: string) => id.replace(/^https?:\/\/openalex\.org\//, '');
+export const shortId = (id: string) => id.replace(/^https?:\/\/openalex\.org\//, '');
 
 function rebuildAbstract(inv: Record<string, number[]> | null | undefined): string | null {
   if (!inv) return null;
@@ -69,10 +70,13 @@ export async function getById(id: string): Promise<OpenAlexWork | null> {
 }
 
 export async function getMany(ids: string[]): Promise<OpenAlexWork[]> {
-  if (!ids.length) return [];
-  const filter = ids.map(shortId).join('|');
-  const res = await getJson<{ results: OpenAlexWork[] }>(`${BASE}/works?filter=openalex_id:${filter}&per-page=50`);
-  return res?.results ?? [];
+  const works: OpenAlexWork[] = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    const filter = ids.slice(i, i + 50).map(shortId).join('|');
+    const res = await getJson<{ results: OpenAlexWork[] }>(`${BASE}/works?filter=openalex_id:${filter}&per-page=50`);
+    works.push(...(res?.results ?? []));
+  }
+  return works;
 }
 
 export async function search(title: string): Promise<OpenAlexWork | null> {

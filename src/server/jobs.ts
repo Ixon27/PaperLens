@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { db, now } from './db';
 
-export type JobKind = 'import' | 'translation' | 'analysis' | 'summary' | 'mindmap' | 'references' | 'keywords';
+export type JobKind = 'import' | 'translation' | 'analysis' | 'addons' | 'summary' | 'mindmap' | 'references' | 'keywords' | 'figure' | 'lineage';
 export type JobStatus = 'queued' | 'running' | 'done' | 'error';
 
 export interface JobRow {
@@ -36,6 +36,7 @@ export interface JobCtx {
 type Listener = (e: JobEvent) => void;
 interface LiveJob {
   row: JobRow;
+  key: string | null;
   text: string;
   listeners: Set<Listener>;
   abort: AbortController;
@@ -74,16 +75,22 @@ export function snapshotOf(row: JobRow, text = '') {
   };
 }
 
-export function activeJob(paperId: string, kind: JobKind): JobRow | null {
+export function activeJob(paperId: string, kind: JobKind, key: string | null = null): JobRow | null {
   for (const j of live.values()) {
-    if (j.row.paper_id === paperId && j.row.kind === kind && (j.row.status === 'queued' || j.row.status === 'running')) return j.row;
+    if (j.row.paper_id === paperId && j.row.kind === kind && j.key === key && (j.row.status === 'queued' || j.row.status === 'running')) return j.row;
   }
   return null;
 }
 
-/** Start a job unless one of the same paper+kind is already queued/running; returns the job id. */
-export function startJob(paperId: string, kind: JobKind, runner: (ctx: JobCtx) => Promise<void>): string {
-  const existing = activeJob(paperId, kind);
+export function activeKeyedJobs(paperId: string, kind: JobKind): { key: string; id: string }[] {
+  return Array.from(live.values())
+    .filter((j) => j.row.paper_id === paperId && j.row.kind === kind && j.key !== null && (j.row.status === 'queued' || j.row.status === 'running'))
+    .map((j) => ({ key: j.key!, id: j.row.id }));
+}
+
+/** Start a job unless the same paper, kind and key is already queued/running. */
+export function startJob(paperId: string, kind: JobKind, runner: (ctx: JobCtx) => Promise<void>, key: string | null = null): string {
+  const existing = activeJob(paperId, kind, key);
   if (existing) return existing.id;
 
   const t = now();
@@ -110,7 +117,7 @@ export function startJob(paperId: string, kind: JobKind, runner: (ctx: JobCtx) =
     row.updated_at,
   );
   const finished = Promise.withResolvers<void>();
-  const job: LiveJob = { row, text: '', listeners: new Set(), abort: new AbortController(), finished: finished.promise };
+  const job: LiveJob = { row, key, text: '', listeners: new Set(), abort: new AbortController(), finished: finished.promise };
   live.set(row.id, job);
 
   const ctx: JobCtx = {

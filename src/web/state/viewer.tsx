@@ -1,8 +1,9 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import type { Highlight, PdfHighlighterUtils } from 'react-pdf-highlighter-extended';
+import { rangesFor, showSource } from '../pdf/syncHighlight';
 import type { AskInput, BlockDto } from '../types';
 
-export type TabId = 'overview' | 'analysis' | 'mindmap' | 'citations' | 'highlights';
+export type TabId = 'overview' | 'analysis' | 'figures' | 'mindmap' | 'lineage' | 'citations' | 'highlights';
 export type PdfMode = 'split' | 'full-panel';
 export type PendingAsk = AskInput & { nonce: number };
 
@@ -11,6 +12,7 @@ export interface ViewerState {
   /** Scroll the PDF to page n (switches back to split view first if the PDF is hidden). */
   jumpToPage(n: number): void;
   scrollToBlock(b: BlockDto): void;
+  revealSource(block: BlockDto, start: number, end: number): void;
   /** Updated by PdfPane from the viewer eventBus 'pagechanging' event. */
   currentPage: number;
   setCurrentPage(n: number): void;
@@ -21,6 +23,9 @@ export interface ViewerState {
   /** The latest requestAsk input not yet consumed by 토론. */
   pendingAsk: PendingAsk | null;
   takePendingAsk(nonce: number): void;
+  figureFocus: { anchor: string; autoStart: boolean; nonce: number } | null;
+  openFigure(anchor: string, autoStart: boolean): void;
+  takeFigureFocus(nonce: number): void;
   tab: TabId;
   setTab(t: TabId): void;
   pdfMode: PdfMode;
@@ -64,7 +69,7 @@ export function blockHighlight(b: BlockDto): Highlight {
 }
 
 const TAB_KEY = 'pr.tab';
-const TABS: TabId[] = ['overview', 'analysis', 'mindmap', 'citations', 'highlights'];
+const TABS: TabId[] = ['overview', 'analysis', 'figures', 'mindmap', 'lineage', 'citations', 'highlights'];
 
 function storedTab(): TabId {
   const saved = localStorage.getItem(TAB_KEY);
@@ -94,6 +99,7 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
   const [currentPage, setCurrentPage] = useState(1);
   const [numPages, setNumPages] = useState(0);
   const [pendingAsk, setPendingAsk] = useState<PendingAsk | null>(null);
+  const [figureFocus, setFigureFocus] = useState<ViewerState['figureFocus']>(null);
   const [pdfMode, setPdfMode] = useState<PdfMode>('split');
   const [showTranslation, setShowTranslation] = useStoredFlag('pr.showTranslation', true);
   const [sidebarOpen, setSidebarOpen] = useStoredFlag('pr.sidebarOpen', true);
@@ -101,10 +107,22 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
   const [termsVersion, setTermsVersion] = useState(0);
   const bumpTerms = useCallback(() => setTermsVersion((v) => v + 1), []);
   const [tab, setTabState] = useState<TabId>(storedTab);
+  const tabRef = useRef(tab);
   const pdfModeRef = useRef(pdfMode);
   pdfModeRef.current = pdfMode;
+  const sourceCleanup = useRef<(() => void) | null>(null);
+  const sourceTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => {
+    sourceCleanup.current?.();
+    clearTimeout(sourceTimer.current);
+    showSource([]);
+  }, []);
 
   const setTab = useCallback((t: TabId) => {
+    if (t !== tabRef.current) {
+      tabRef.current = t;
+      setPdfMode('split');
+    }
     localStorage.setItem(TAB_KEY, t);
     setTabState(t);
   }, []);
@@ -121,6 +139,48 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
   const scrollToBlock = useCallback((b: BlockDto) => {
     utilsRef.current?.scrollToHighlight(blockHighlight(b));
   }, []);
+
+  const revealSource = useCallback((block: BlockDto, start: number, end: number) => {
+    sourceCleanup.current?.();
+    clearTimeout(sourceTimer.current);
+    showSource([]);
+    const go = () => {
+      sourceCleanup.current = null;
+      scrollToBlock(block);
+      const paint = () => {
+        const ranges = rangesFor(block, start, end);
+        if (!ranges.length) return false;
+        showSource(ranges);
+        sourceTimer.current = window.setTimeout(() => {
+          showSource([]);
+          sourceTimer.current = undefined;
+        }, 6000);
+        return true;
+      };
+      if (paint()) return;
+      const viewer = utilsRef.current?.getViewer();
+      if (!viewer) return;
+      const cleanup = () => {
+        viewer.eventBus.off('textlayerrendered', onRendered);
+        clearTimeout(timeout);
+        if (sourceCleanup.current === cleanup) sourceCleanup.current = null;
+      };
+      const onRendered = (e: { pageNumber: number }) => {
+        if (e.pageNumber === block.page) {
+          paint();
+          cleanup();
+        }
+      };
+      viewer.eventBus.on('textlayerrendered', onRendered);
+      const timeout = setTimeout(cleanup, 5000);
+      sourceCleanup.current = cleanup;
+    };
+    if (pdfModeRef.current === 'full-panel') {
+      setPdfMode('split');
+      const frame = requestAnimationFrame(go);
+      sourceCleanup.current = () => cancelAnimationFrame(frame);
+    } else go();
+  }, [scrollToBlock]);
 
   const requestAsk = useCallback(
     (input: AskInput) => {
@@ -141,11 +201,21 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
     setPendingAsk((p) => (p && p.nonce === nonce ? null : p));
   }, []);
 
+  const openFigure = useCallback((anchor: string, autoStart: boolean) => {
+    setFigureFocus({ anchor, autoStart, nonce: Date.now() + Math.random() });
+    setTab('figures');
+    setSidebarOpen(true);
+  }, [setTab, setSidebarOpen]);
+  const takeFigureFocus = useCallback((nonce: number) => {
+    setFigureFocus((focus) => focus?.nonce === nonce ? null : focus);
+  }, []);
+
   const value = useMemo<ViewerState>(
     () => ({
       utilsRef,
       jumpToPage,
       scrollToBlock,
+      revealSource,
       currentPage,
       setCurrentPage,
       numPages,
@@ -153,6 +223,9 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
       requestAsk,
       pendingAsk,
       takePendingAsk,
+      figureFocus,
+      openFigure,
+      takeFigureFocus,
       tab,
       setTab,
       pdfMode,
@@ -169,11 +242,15 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
     [
       jumpToPage,
       scrollToBlock,
+      revealSource,
       currentPage,
       numPages,
       requestAsk,
       pendingAsk,
       takePendingAsk,
+      figureFocus,
+      openFigure,
+      takeFigureFocus,
       tab,
       setTab,
       pdfMode,

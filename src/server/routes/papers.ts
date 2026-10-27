@@ -164,6 +164,7 @@ papers.delete('/papers/:id', (c) => {
   const p = requirePaper(c.req.param('id'));
   const images = [
     ...(db.prepare('SELECT image_file FROM highlights WHERE paper_id=? AND image_file IS NOT NULL').all(p.id) as { image_file: string }[]),
+    ...(db.prepare('SELECT image_file FROM figures WHERE paper_id=? AND image_file IS NOT NULL').all(p.id) as { image_file: string }[]),
     ...(db
       .prepare(
         'SELECT m.image_file FROM messages m JOIN threads t ON t.id=m.thread_id WHERE t.paper_id=? AND m.image_file IS NOT NULL',

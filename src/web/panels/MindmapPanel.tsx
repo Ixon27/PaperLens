@@ -188,10 +188,6 @@ function MindmapInner() {
     if (tab === 'mindmap' && nodes.length) fitSoon();
   }, [tab, pdfMode]);
 
-  // 크게 보기 belongs to this tab; leaving the tab brings the PDF back.
-  useEffect(() => {
-    if (tab !== 'mindmap' && pdfMode === 'full-panel') setPdfMode('split');
-  }, [tab, pdfMode, setPdfMode]);
 
   useEffect(() => () => {
     clearTimeout(saveTimer.current);

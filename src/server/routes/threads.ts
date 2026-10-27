@@ -1,14 +1,15 @@
 import { Hono } from 'hono';
 import { streamSSE, type SSEStreamingApi } from 'hono/streaming';
 import { nanoid } from 'nanoid';
-import { db, getBlocks, getPaper, madeByOf, now, type BlockRow, type PaperRow } from '../db';
+import { db, getBlocks, getPaper, madeByOf, now, type PaperRow } from '../db';
+import { figureMentions, resolveAnchor, type ResolvedAnchor } from '../anchors';
 import { HttpError } from '../http-error';
 import { imagePath, imageUrl, removeImage, saveDataUrlPng } from '../images';
 import { resolveModel, runLlm, validateModelSpec, type ModelSpec } from '../llm';
 import { abstractOrPageOne, paperSystem } from '../pdf/context';
 import { fill, loadPrompt } from '../prompts';
 import { getSettings } from '../settings';
-import { anchorId, captionLabel, findAnchor, mentionPattern, parseAnchor, sectionBody, type ExplainAnchor } from '../../shared/explain';
+import { anchorId, parseAnchor, type ExplainAnchor } from '../../shared/explain';
 
 export const threads = new Hono();
 
@@ -108,28 +109,6 @@ threads.get('/papers/:id/threads', (c) => {
 
 // ---------- explanation cards ----------
 
-type AnchoredBlock = BlockRow & { isRef: boolean };
-
-interface ResolvedAnchor {
-  blocks: AnchoredBlock[];
-  block: AnchoredBlock;
-  /** The section's body paragraphs; empty for figures and tables. */
-  body: AnchoredBlock[];
-  /** `Figure 2A` / `Table 1`; null for sections. */
-  label: string | null;
-}
-
-/** The block an anchor points at in the current layout; 404 when it is gone or no longer that kind. */
-function resolveAnchor(paperId: string, a: ExplainAnchor): ResolvedAnchor {
-  const blocks = getBlocks(paperId).map((b) => ({ ...b, isRef: Boolean(b.is_ref) }));
-  const at = findAnchor(blocks, a);
-  const block = blocks[at];
-  const caption = block && a.type !== 'section' ? captionLabel(block.text) : null;
-  if (!block || (a.type !== 'section' && caption?.type !== a.type)) throw new HttpError(404, '설명할 위치를 찾을 수 없습니다');
-  const body = a.type === 'section' ? sectionBody(blocks, at) : [];
-  if (a.type === 'section' && !body.length) throw new HttpError(400, '이 섹션에서 설명할 본문을 찾지 못했습니다');
-  return { blocks, block, body, label: caption?.label ?? null };
-}
 
 function cardPrompt(P: Record<string, string>, a: ExplainAnchor, r: ResolvedAnchor, hasImage: boolean): string {
   if (a.type === 'section') {
@@ -137,18 +116,12 @@ function cardPrompt(P: Record<string, string>, a: ExplainAnchor, r: ResolvedAnch
     return fill(P.CARD_SECTION, { page: a.page, heading: r.block.text, text });
   }
   const label = r.label!;
-  const mention = mentionPattern(label);
-  const mentions = r.blocks
-    .filter((b) => b.kind === 'body' && !b.isRef && mention.test(b.text))
-    .slice(0, 3)
-    .map((b) => `- ${b.text.slice(0, 600)}`)
-    .join('\n');
   return fill(P.CARD_FIGURE, {
     page: a.page,
     kind: a.type === 'table' ? '표' : '그림',
     label,
     caption: r.block.text.slice(0, 1500),
-    mentions: mentions || '(본문 언급 없음)',
+    mentions: figureMentions(r, 3),
     image_note: hasImage ? '첨부 이미지는 이 쪽 전체다. 위 라벨의 그림·표만 설명하라.' : '쪽 이미지가 없으니 캡션과 본문만으로 설명하라.',
   });
 }

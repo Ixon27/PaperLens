@@ -10,6 +10,7 @@ import { runLlm } from '../llm';
 import { abstractOrPageOne } from '../pdf/context';
 import { fill, loadPrompt } from '../prompts';
 import { getSettings } from '../settings';
+import { ADDONS, addonKind } from '../tasks/addons';
 import { orderSections } from '../tasks/analysis';
 
 export const exportRoutes = new Hono();
@@ -28,6 +29,15 @@ function requirePaper(id: string): PaperRow {
   const p = getPaper(id);
   if (!p) throw new HttpError(404, '논문을 찾을 수 없습니다');
   return p;
+}
+
+function exportAnalysis(paperId: string): string {
+  const analysis = getArtifact(paperId, 'analysis')?.content;
+  const parts = [
+    analysis ? orderSections([analysis]) : '',
+    ...ADDONS.map((id) => getArtifact(paperId, addonKind(id))?.content ?? ''),
+  ];
+  return parts.filter((part) => part.trim()).join('\n\n');
 }
 
 function walkMd(dir: string, recursive: boolean, skip?: Record<string, true>): string[] {
@@ -100,8 +110,7 @@ exportRoutes.post('/papers/:id/export/preview', async (c) => {
   if (!slug) slug = sanitizeSlug(fallbackSlug(paper.title));
   const filename = `${key}${slug ? '-' + slug : ''}.md`;
 
-  const stored = getArtifact(paper.id, 'analysis')?.content;
-  const analysis = stored ? orderSections([stored]) : '';
+  const analysis = exportAnalysis(paper.id);
   const haystack = normalize(analysis + '\n' + paper.title);
   const notes = [
     ...walkMd(join(vault, '04_References', 'Notes'), true),
@@ -196,7 +205,7 @@ exportRoutes.post('/papers/:id/export', async (c) => {
       researchTypes,
     },
     tags: (body.tags ?? []).map((t) => t.trim()).filter(Boolean),
-    analysis: art ? orderSections([art.content]) : null,
+    analysis: exportAnalysis(paper.id) || null,
     engine: art?.engine ?? null,
     pdfPath: paper.pdf_file ? pdfVaultPath(paper.id, PATHS.pdfs, vault) : null,
     highlights,

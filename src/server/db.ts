@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS translations(paper_id TEXT NOT NULL REFERENCES papers
   ko TEXT NOT NULL, sentences TEXT, made_by TEXT, PRIMARY KEY(paper_id, block_idx));
 CREATE TABLE IF NOT EXISTS artifacts(paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE, kind TEXT NOT NULL,
   content TEXT NOT NULL, meta TEXT NOT NULL DEFAULT '{}', engine TEXT, made_by TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(paper_id, kind));
+CREATE TABLE IF NOT EXISTS figures(paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+  anchor TEXT NOT NULL, spec TEXT NOT NULL, image_file TEXT, made_by TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(paper_id, anchor));
 CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, paper_id TEXT REFERENCES papers(id) ON DELETE CASCADE, kind TEXT NOT NULL,
   status TEXT NOT NULL, progress REAL NOT NULL DEFAULT 0, message TEXT, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS highlights(id TEXT PRIMARY KEY, paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE, type TEXT NOT NULL,

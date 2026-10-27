@@ -43,11 +43,36 @@ export function rangesFor(block: BlockDto, start: number, end: number): Range[] 
     const dom = node.textContent ?? '';
     // Block text drops a line's leading spaces; the span keeps them.
     const base = /^\s/.test(expected) ? 0 : dom.length - dom.trimStart().length;
-    const len = dom.length - base;
-    const scale = Math.abs(len - (e - s)) <= 1 ? 1 : len / (e - s);
-    const at = (pos: number) => Math.min(dom.length, Math.max(0, base + Math.round((pos - s) * scale)));
-    const a = at(Math.max(start, s));
-    const b = at(Math.min(end, e));
+    const normalized = dom.slice(base).normalize('NFKC');
+    const expectedNormalized = expected.normalize('NFKC');
+    let a: number;
+    let b: number;
+    if (normalized.startsWith(expectedNormalized)) {
+      // PDF.js can draw a ligature as one character while extracted block text has two.
+      // Map normalized characters back to their actual DOM boundaries rather than scaling.
+      const starts: number[] = [];
+      const ends: number[] = [];
+      for (let i = base; i < dom.length;) {
+        const char = String.fromCodePoint(dom.codePointAt(i)!);
+        const finish = i + char.length;
+        for (let j = 0; j < char.normalize('NFKC').length; j++) {
+          starts.push(i);
+          ends.push(finish);
+        }
+        i = finish;
+      }
+      const offset = (pos: number) => expected.slice(0, pos - s).normalize('NFKC').length;
+      const startOffset = offset(Math.max(start, s));
+      const endOffset = offset(Math.min(end, e));
+      a = starts[startOffset] ?? dom.length;
+      b = endOffset ? ends[endOffset - 1] ?? dom.length : base;
+    } else {
+      const len = dom.length - base;
+      const scale = Math.abs(len - (e - s)) <= 1 ? 1 : len / (e - s);
+      const at = (pos: number) => Math.min(dom.length, Math.max(0, base + Math.round((pos - s) * scale)));
+      a = at(Math.max(start, s));
+      b = at(Math.min(end, e));
+    }
     if (a >= b) continue;
     const range = document.createRange();
     range.setStart(node, a);
@@ -62,6 +87,13 @@ export function showSync(ranges: Range[]): void {
   if (typeof CSS === 'undefined' || !('highlights' in CSS)) return;
   if (ranges.length) CSS.highlights.set(HIGHLIGHT_NAME, new Highlight(...ranges));
   else CSS.highlights.delete(HIGHLIGHT_NAME);
+}
+
+/** Paint a cited source passage independently of translation hover highlights. */
+export function showSource(ranges: Range[]): void {
+  if (typeof CSS === 'undefined' || !('highlights' in CSS)) return;
+  if (ranges.length) CSS.highlights.set('pr-source', new Highlight(...ranges));
+  else CSS.highlights.delete('pr-source');
 }
 
 /** The text-layer item and character under the pointer, if any. `length` is the item's text length. */

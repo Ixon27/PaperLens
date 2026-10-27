@@ -63,7 +63,7 @@ function toEntry(v: unknown): RefEntry | null {
   };
 }
 
-async function runReferences(paperId: string, ctx: JobCtx) {
+export async function runReferences(paperId: string, ctx: JobCtx) {
   const paper = getPaper(paperId);
   if (!paper) throw new Error('논문을 찾을 수 없습니다');
   const blocks = sourceBlocks(getBlocks(paperId), paper.page_count ?? 0);

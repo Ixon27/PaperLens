@@ -1,5 +1,6 @@
 import { realpathSync } from 'node:fs';
 import { relative, sep } from 'node:path';
+import { pageCiteRe } from '../../shared/cite';
 import { mapOutsideBlocks, tidyForVault } from './tidy';
 
 export interface ExportAuthor {
@@ -82,7 +83,7 @@ export function pageLink(pdfPath: string | null, page: number, end?: number): st
 }
 
 export function convertPageRefs(md: string, pdfPath: string | null): string {
-  return md.replace(/\[p\.(\d+)(?:[–-](\d+))?\]/g, (_m, a: string, b: string | undefined) =>
+  return md.replace(pageCiteRe(), (_m, a: string, b: string | undefined) =>
     pageLink(pdfPath, Number(a), b ? Number(b) : undefined),
   );
 }

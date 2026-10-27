@@ -1,4 +1,4 @@
-import { GripVertical, MessageCircleMore, Minimize2, Sparkles, Trash2 } from 'lucide-react';
+import { ChartScatter, GripVertical, MessageCircleMore, Minimize2, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { api } from '../api';
 import { ChatBubble } from '../components/ChatBubbles';
@@ -13,6 +13,7 @@ import { useThreadChat } from '../state/useThreadChat';
 import { useViewer } from '../state/viewer';
 import type { ExplanationDto, ThreadDto } from '../types';
 import type { ModelSpec } from '../../shared/models';
+import { anchorId } from '../../shared/explain';
 
 export interface CardSize {
   w: number;
@@ -58,7 +59,7 @@ export function ExplainCard({
   autoStartImage: string | null | undefined;
   captureImage(): string | null;
 }) {
-  const { jumpToPage } = useViewer();
+  const { jumpToPage, openFigure } = useViewer();
   const toast = useToast();
   const id = explanation.id;
   const chat = useThreadChat((t) => onThread(t, true));
@@ -195,6 +196,11 @@ export function ExplainCard({
         <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-fg" title={title}>
           {title}
         </span>
+        {explanation.anchor.type !== 'section' && (
+          <button className={smallIconBtnCls} aria-label="인터랙티브로 보기" title="인터랙티브로 보기" onClick={() => openFigure(anchorId(explanation.anchor), true)}>
+            <ChartScatter size={14} />
+          </button>
+        )}
         <button className={smallIconBtnCls} aria-label="설명 삭제" title="설명 삭제" onClick={onTrash}>
           <Trash2 size={14} />
         </button>

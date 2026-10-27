@@ -6,7 +6,7 @@ import { fill, loadPrompt } from '../prompts';
 import { getSettings } from '../settings';
 import type { ResearchType } from './classify';
 
-const RETRY_SUFFIX = '\n\n(다시. 설명하지 말고 위 #### 소제목을 글자 그대로 쓴 본문만 출력하라.)';
+export const RETRY_SUFFIX = '\n\n(다시. 설명하지 말고 위 #### 소제목을 글자 그대로 쓴 본문만 출력하라.)';
 const TEXT_THROTTLE_MS = 200;
 
 /** Reading order of the analysis; a section belongs to the first entry its `####` title starts with. */

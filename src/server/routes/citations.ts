@@ -3,11 +3,32 @@ import { getArtifact, madeByOf } from '../db';
 import { HttpError } from '../http-error';
 import { libraryIdForDoi, getRelated } from '../tasks/related';
 import { loadReferences, startReferences, type RefEntry } from '../tasks/references';
+import { startLineage, type LineageContent } from '../tasks/lineage';
 import { requirePaper } from './papers';
 
 export const citations = new Hono();
 
 const withLibrary = (entries: RefEntry[]) => entries.map((e) => ({ ...e, inLibrary: libraryIdForDoi(e.doi) }));
+
+citations.post('/papers/:id/lineage', (c) => {
+  const p = requirePaper(c.req.param('id'));
+  return c.json({ jobId: startLineage(p.id) });
+});
+
+citations.get('/papers/:id/lineage', (c) => {
+  const p = requirePaper(c.req.param('id'));
+  const artifact = getArtifact(p.id, 'lineage');
+  let lineage: (Omit<LineageContent, 'nodes'> & { nodes: (LineageContent['nodes'][number] & { inLibrary: string | null })[] }) | null = null;
+  if (artifact) {
+    try {
+      const content = JSON.parse(artifact.content) as LineageContent;
+      lineage = { ...content, nodes: content.nodes.map((node) => ({ ...node, inLibrary: libraryIdForDoi(node.doi) })) };
+    } catch {
+      lineage = null;
+    }
+  }
+  return c.json({ lineage, by: artifact ? madeByOf(artifact) : null, updatedAt: artifact?.updated_at ?? null });
+});
 
 citations.post('/papers/:id/references', (c) => {
   const p = requirePaper(c.req.param('id'));

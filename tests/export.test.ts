@@ -17,6 +17,7 @@ describe('obsidian export helpers', () => {
   it('converts page refs', () => {
     expect(convertPageRefs('근거 [p.3–4]', 'MM/paper-reader/pdfs/x.pdf')).toBe('근거 [[MM/paper-reader/pdfs/x.pdf#page=3|p.3–4]]');
     expect(convertPageRefs('[p.7]', null)).toBe('(p.7)');
+    expect(convertPageRefs('근거 [p.3 "the strain grew"]', 'x.pdf')).toBe('근거 [[x.pdf#page=3|p.3]]');
   });
   it('shifts headings', () => {
     expect(shiftHeadings('#### A\n##### B\n###### C\n```\n#### code\n```')).toBe('## A\n### B\n#### C\n```\n#### code\n```');
