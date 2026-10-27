@@ -99,6 +99,11 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Smoke current npm Claude entrypoint on Windows
+        run: |
+          npm install --global @anthropic-ai/claude-code
+          export CLAUDE_SHIM="$(npm prefix --global)/claude.cmd"
+          npx tsx -e 'import { execFileSync } from "node:child_process"; import { resolveCli } from "./src/server/llm/command"; const target = resolveCli(process.env.CLAUDE_SHIM!); console.log(execFileSync(target.command, [...target.args, "--version"], { encoding: "utf8", env: { ...process.env, ...target.env } }));'
       - name: Build the installer (unsigned)
         run: npm run dist:win -- --x64 --publish never
       - name: Smoke the packaged app (SQLite, PDF runtime, window, quit)

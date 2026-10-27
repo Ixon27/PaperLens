@@ -8,7 +8,7 @@ export function loadPrompt(name: string): Record<string, string> {
   const sections: Record<string, string> = {};
   let current: string | null = null;
   let buf: string[] = [];
-  for (const line of raw.split('\n')) {
+  for (const line of raw.split(/\r?\n/)) {
     const m = /^## === (.+?) ===$/.exec(line);
     if (m) {
       if (current !== null) sections[current] = buf.join('\n').trim();

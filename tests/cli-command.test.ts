@@ -41,6 +41,16 @@ it('runs an npm .cmd shim as its script under Node, never through cmd.exe', () =
   });
 });
 
+it('runs the native executable targeted by a current Claude npm shim', () => {
+  const bin = join(dir, 'claude.cmd');
+  writeFileSync(bin, '@echo off\r\n"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe" %*\r\n');
+  expect(resolveCli(bin, 'win32')).toEqual({
+    command: join(dir, 'node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe'),
+    args: [],
+    env: {},
+  });
+});
+
 it('starts native executables and non-Windows binaries as they are', () => {
   expect(resolveCli('C:\\Users\\me\\.local\\bin\\claude.exe', 'win32')).toEqual({ command: 'C:\\Users\\me\\.local\\bin\\claude.exe', args: [], env: {} });
   expect(resolveCli('/opt/homebrew/bin/claude', 'darwin')).toEqual({ command: '/opt/homebrew/bin/claude', args: [], env: {} });

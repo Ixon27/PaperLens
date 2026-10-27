@@ -8,8 +8,8 @@ interface Command {
   env: NodeJS.ProcessEnv;
 }
 
-/** `"%dp0%\node_modules\…\cli.js" %*` in an npm `.cmd` shim. */
-const SHIM_TARGET = /"%~?dp0%?\\([^"]+\.(?:c|m)?js)"/i;
+/** npm shims can point to a Node script or a native executable (current Claude). */
+const SHIM_TARGET = /"%~?dp0%?\\(node_modules\\[^"]+\.(?:(?:c|m)?js|exe))"/i;
 
 function nodeFor(shim: string): Command {
   const beside = join(dirname(shim), 'node.exe');
@@ -23,13 +23,14 @@ function nodeFor(shim: string): Command {
 
 /**
  * What to execute for a CLI path. An npm-installed CLI on Windows is a `.cmd` shim, which Node can only
- * start through cmd.exe, and cmd.exe mangles JSON and quoted arguments; run the shim's script with Node
- * directly instead.
+ * start through cmd.exe, and cmd.exe mangles JSON and quoted arguments; run the package's entrypoint
+ * directly (under Node for scripts).
  */
 export function resolveCli(bin: string, platform = process.platform): Command {
   if (platform !== 'win32' || !/\.(cmd|bat)$/i.test(bin)) return { command: bin, args: [], env: {} };
   const target = SHIM_TARGET.exec(readFileSync(bin, 'utf8'))?.[1];
   if (!target) throw new Error(`CLI 실행 파일을 해석하지 못했습니다: ${bin}`);
+  if (/\.exe$/i.test(target)) return { command: join(dirname(bin), target), args: [], env: {} };
   const node = nodeFor(bin);
   return { ...node, args: [join(dirname(bin), target)] };
 }

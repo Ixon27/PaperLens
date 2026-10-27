@@ -139,6 +139,12 @@ macOS 설치 스크립트는 실행 중인 앱·AI 작업을 강제 종료하지
 - `react-pdf-highlighter-extended@8.1.0`의 페이지별 그룹 함수는 다중 줄 하이라이트를 중복 렌더링한다. Vite alias로 `src/web/pdf/group-highlights-by-page.ts`를 적용하며 라이브러리 자체를 prebundle에서 제외한다. 버전을 올릴 때 이 처리를 확인한다.
 - `prompts/*.md`는 소스 실행에서 다음 AI 호출부터 반영된다. 배포 앱은 빌드 당시 프롬프트를 포함한다. 독자 배경 설명은 앱 설정에서, 모델·작업 수준은 오른쪽 위 모델 버튼에서 바꾼다.
 
+## 0.3.2 변경 사항
+
+- Windows에서 최신 npm Claude Code의 네이티브 실행 파일(`bin/claude.exe`)을 인식하지 못하던 문제를 수정했다. 기존 Node 스크립트 방식도 유지한다.
+- Windows 줄바꿈(CRLF)으로 저장된 프롬프트를 읽지 못해 요약·키워드 생성 시 `Cannot read properties of undefined (reading 'replace')`가 발생하던 문제를 수정했다.
+- Windows 배포 검증에 실제 npm Claude Code 설치 후 `--version` 실행 확인을 추가했다. 로그인 후 AI 응답 생성까지 검증하는 것은 아니다.
+
 ## 0.3.1 변경 사항
 
 - 새 버전 알림을 추가했다. 하루 한 번 GitHub 최신 릴리스 번호만 확인하고, 닫은 버전은 다시 알리지 않는다. 설정에서 끌 수 있다.
