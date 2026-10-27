@@ -6,7 +6,7 @@
 
 ## 다운로드 · 설치
 
-**[최신 설치 파일 다운로드 →](https://github.com/Ixon27/paper-reader/releases/latest)**
+**[최신 설치 파일 다운로드 →](https://github.com/Ixon27/paperlens/releases/latest)**
 
 ### macOS
 
@@ -93,8 +93,8 @@ Obsidian을 사용할 경우 본인의 볼트를 선택한다. 노트는 `04_Ref
 개발 환경은 macOS 또는 Windows와 **Node 24 LTS 또는 26 이상**, npm을 사용한다. 설치 파일은 그 OS·CPU에서 빌드한다.
 
 ```bash
-git clone https://github.com/Ixon27/paper-reader.git
-cd paper-reader
+git clone https://github.com/Ixon27/paperlens.git
+cd paperlens
 npm ci
 npm run desktop              # 전용 앱 창으로 실행
 ```
