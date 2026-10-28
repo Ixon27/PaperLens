@@ -31,23 +31,62 @@ export interface TermDto {
   source: TermSource;
 }
 
-export const termDto = (r: TermRow): TermDto => ({
-  id: r.id,
-  term: r.term,
-  ko: r.ko,
-  definition: r.definition,
-  inPaper: r.in_paper,
-  page: r.page,
-  by: r.made_by ? (JSON.parse(r.made_by) as MadeBy) : null,
-  createdAt: r.created_at,
-  source: r.source,
-});
-
+const OPEN_BRACKETS: Record<string, string> = { '(': ')', '[': ']', '{': '}' };
+const CLOSE_BRACKETS: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
 const EDGE_PUNCT = /^[\p{P}\s]+|[\p{P}\s]+$/gu;
-export const cleanTerm = (t: string) => t.normalize('NFKC').replace(/\s+/g, ' ').replace(EDGE_PUNCT, '');
 
-/** One vocabulary entry per spelling, regardless of case, spacing or surrounding punctuation. */
-export const termKey = (t: string) => cleanTerm(t).toLowerCase();
+function balancedBrackets(value: string): boolean {
+  const stack: string[] = [];
+  for (const char of value) {
+    if (OPEN_BRACKETS[char]) stack.push(char);
+    else if (CLOSE_BRACKETS[char] && stack.pop() !== CLOSE_BRACKETS[char]) return false;
+  }
+  return stack.length === 0;
+}
+
+// Earlier versions removed closing punctuation before saving AI keywords.
+// Repair only a trailing, unfinished parenthesized token for display; retain
+// the stored value and key so existing lookups and user entries are unchanged.
+function displayedTerm(r: TermRow): string {
+  if (r.source !== 'auto') return r.term;
+  const open = r.term.lastIndexOf('(');
+  if (open < 0 || !balancedBrackets(r.term.slice(0, open))) return r.term;
+  const suffix = r.term.slice(open + 1);
+  return /^[\p{L}\p{N}][\p{L}\p{N}_.:+/−-]*$/u.test(suffix) ? `${r.term})` : r.term;
+}
+
+export const termDto = (r: TermRow): TermDto => {
+  const term = displayedTerm(r);
+  return {
+    id: r.id,
+    term,
+    ko: r.ko === r.term ? term : r.ko,
+    definition: r.definition,
+    inPaper: r.in_paper,
+    page: r.page,
+    by: r.made_by ? (JSON.parse(r.made_by) as MadeBy) : null,
+    createdAt: r.created_at,
+    source: r.source,
+  };
+};
+
+export function cleanTerm(t: string): string {
+  let term = t.normalize('NFKC').replace(/\s+/g, ' ').trim();
+  while (term && /^\p{P}/u.test(term)) {
+    const closing = OPEN_BRACKETS[term[0]];
+    if (closing && term.slice(1).includes(closing)) break;
+    term = term.slice(1).trimStart();
+  }
+  while (term && /\p{P}$/u.test(term)) {
+    const opening = CLOSE_BRACKETS[term[term.length - 1]];
+    if (opening && term.slice(0, -1).includes(opening)) break;
+    term = term.slice(0, -1).trimEnd();
+  }
+  return term;
+}
+
+/** Preserve existing keys while allowing balanced punctuation in displayed terms. */
+export const termKey = (t: string) => cleanTerm(t).replace(EDGE_PUNCT, '').toLowerCase();
 
 export interface KeywordEntry {
   term: string;
@@ -68,9 +107,10 @@ export function normalizeKeywords(value: unknown): KeywordEntry[] {
     if (out.length >= MAX_KEYWORDS) break;
     if (typeof item !== 'object' || item === null) continue;
     const o = item as Record<string, unknown>;
-    const term = typeof o.term === 'string' ? cleanTerm(o.term) : '';
+    const rawTerm = typeof o.term === 'string' ? o.term.normalize('NFKC') : '';
+    const term = cleanTerm(rawTerm);
     const definition = str(o.definition);
-    if (!term || term.length > 80 || !definition) continue;
+    if (!term || term.length > 80 || !definition || !/[\p{L}\p{N}]/u.test(term) || !balancedBrackets(rawTerm) || /\(\s*\)|\[\s*\]|\{\s*\}/u.test(rawTerm)) continue;
     const key = termKey(term);
     if (seen.has(key)) continue;
     seen.add(key);

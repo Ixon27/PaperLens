@@ -15,7 +15,7 @@ type Patch = { engine?: EngineId; claude?: Partial<Settings['claude']>; codex?: 
 
 const PROFILES: { id: Profile; title: string; subtitle: string }[] = [
   { id: 'quick', title: '빠른 작업', subtitle: '번역 · 요약 · 토론 · 용어' },
-  { id: 'heavy', title: '깊은 작업', subtitle: '심층 분석 · 마인드맵' },
+  { id: 'heavy', title: '깊은 작업', subtitle: 'Deep Research · 마인드맵' },
 ];
 
 function applyPatch(s: Settings, p: Patch): Settings {

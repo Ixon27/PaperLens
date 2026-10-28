@@ -1,6 +1,6 @@
 {
   "name": "paper-reader",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "type": "module",
   "description": "A local-first macOS paper reader powered by your own Claude or Codex CLI.",

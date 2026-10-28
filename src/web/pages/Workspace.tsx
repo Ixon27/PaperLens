@@ -40,7 +40,7 @@ const FiguresPanel = lazy(() => import('../panels/FiguresPanel').then((m) => ({ 
 
 const TABS: { id: TabId; label: string; Icon: LucideIcon; needsText: boolean }[] = [
   { id: 'overview', label: '요약·토론', Icon: MessagesSquare, needsText: true },
-  { id: 'analysis', label: '심층 분석', Icon: FileSearch, needsText: true },
+  { id: 'analysis', label: 'Deep Research', Icon: FileSearch, needsText: true },
   { id: 'figures', label: '그림', Icon: ChartScatter, needsText: true },
   { id: 'mindmap', label: '마인드맵', Icon: Network, needsText: true },
   { id: 'lineage', label: '계보', Icon: GitFork, needsText: true },

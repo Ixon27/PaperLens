@@ -180,7 +180,7 @@ function DeepAnalysisCard() {
         <JobBar job={h.job} onCancel={() => void h.cancel()} />
         <p className="text-[13px] leading-relaxed text-fg-muted">Methods·Results·Discussion까지 자세히 풀어 씁니다. 세 부분을 동시에 작성해 몇 분 걸립니다.</p>
         <button className={primaryBtnCls} onClick={() => void beginAnalysis()}>
-          심층 분석 시작
+          Deep Research 시작
         </button>
       </div>
     );
@@ -212,7 +212,7 @@ function DeepAnalysisCard() {
 
   return (
     <Card
-      title="심층 분석"
+      title="Deep Research"
       meta={
         artifact &&
         meta && (
