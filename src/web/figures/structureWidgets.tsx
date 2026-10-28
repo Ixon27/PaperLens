@@ -1,5 +1,5 @@
 import dagre from '@dagrejs/dagre';
-import { MarkerType, Panel, ReactFlow, useReactFlow, useStore, type Edge, type Node } from '@xyflow/react';
+import { MarkerType, ReactFlow, useReactFlow, useStore, type Edge, type Node } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationNodeDatum, type SimulationLinkDatum } from 'd3-force';
 import { useEffect, useMemo, useState } from 'react';
@@ -21,22 +21,6 @@ function useReducedMotion() {
     return () => media.removeEventListener('change', change);
   }, []);
   return reduced;
-}
-function FlowControls() {
-  const { zoomIn, zoomOut, fitView, getViewport, setViewport } = useReactFlow();
-  const pan = (dx: number, dy: number) => {
-    const viewport = getViewport();
-    void setViewport({ ...viewport, x: viewport.x + dx, y: viewport.y + dy });
-  };
-  return <Panel position="top-right" className="flex max-w-[240px] flex-wrap gap-1 rounded-lg bg-surface p-1">
-    <button type="button" className={smallBtnCls} onClick={() => void zoomIn()}>확대</button>
-    <button type="button" className={smallBtnCls} onClick={() => void zoomOut()}>축소</button>
-    <button type="button" className={smallBtnCls} onClick={() => void fitView({ padding: 0.15, maxZoom: 1 })}>전체 보기</button>
-    <button type="button" className={smallBtnCls} aria-label="왼쪽으로 이동" onClick={() => pan(100, 0)}>←</button>
-    <button type="button" className={smallBtnCls} aria-label="위로 이동" onClick={() => pan(0, 100)}>↑</button>
-    <button type="button" className={smallBtnCls} aria-label="아래로 이동" onClick={() => pan(0, -100)}>↓</button>
-    <button type="button" className={smallBtnCls} aria-label="오른쪽으로 이동" onClick={() => pan(-100, 0)}>→</button>
-  </Panel>;
 }
 
 function FlowSelection({ id }: { id: string }) {
@@ -93,10 +77,9 @@ export function FlowWidget({ spec }: { spec: Spec<'flow'> }) {
       <button type="button" className={smallBtnCls} onClick={() => { if (!playing && index === spec.steps.length - 1) setIndex(0); setPlaying(!playing); }}>{playing ? '일시정지' : '자동 재생'}</button>
       <span aria-live="polite">{index + 1}/{spec.steps.length}</span>
     </div>
-    <p className="text-xs text-fg-dim">드래그하여 이동하고 확대·축소할 수 있습니다. 화살표의 설명은 아래 관계 목록에서 확인하세요.</p>
+    <p className="text-xs text-fg-dim">드래그하여 이동하고 스크롤로 확대·축소할 수 있습니다. 화살표의 설명은 아래 관계 목록에서 확인하세요.</p>
     <div className="overflow-hidden rounded-lg border border-line" style={{ height: expanded ? 'min(70vh, 800px)' : 400 }}>
       <ReactFlow nodes={nodes} edges={edges} defaultViewport={{ x: 20, y: 20, zoom: 1 }} minZoom={0.1} maxZoom={2} nodesDraggable={false} nodesConnectable={false} onNodeClick={(_, node) => setIndex(spec.steps.findIndex(s => s.id === node.id))}>
-        <FlowControls />
         <FlowSelection id={step.id} />
       </ReactFlow>
     </div>

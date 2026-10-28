@@ -145,6 +145,11 @@ html[data-desktop='darwin'] .app-header {
   padding-left: 84px;
 }
 
+/* Keep the fullscreen toolbar below the native draggable title bar, even while scrolling. */
+html[data-desktop='darwin'] .figure-fullscreen {
+  padding-top: 56px;
+}
+
 /* Markdown body (analysis, chat) */
 .md {
   @apply text-[14.5px] leading-[1.75] break-words;

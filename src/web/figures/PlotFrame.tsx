@@ -7,7 +7,9 @@ import { useFigureExpanded } from './FigureDisplayContext';
 function categoryLabels(scale: Plot.PlotOptions['x']): string[] {
   if (!scale?.domain || scale.axis === null || scale.axis === false) return [];
   const values = Array.from(scale.domain);
-  return values.every(value => typeof value === 'string') ? values : [];
+  if (!values.every(value => typeof value === 'string')) return [];
+  const format = scale.tickFormat;
+  return typeof format === 'function' ? values.map((value, index) => String(format(value, index) ?? '')) : values;
 }
 
 function categoryLayout(options: Plot.PlotOptions, availableWidth: number, measure: (s: string) => number) {
@@ -33,10 +35,10 @@ function categoryLayout(options: Plot.PlotOptions, availableWidth: number, measu
   const topAxis = xScale?.axis === 'top';
   const labelSpace = x.length ? Math.ceil(vertical + (xScale?.label ? 35 : 18)) : 0;
   const top = Math.max(options.marginTop ?? options.margin ?? 20, topAxis ? labelSpace : 20);
-  const bottom = Math.max(options.marginBottom ?? options.margin ?? 30, !topAxis ? labelSpace : 30);
+  const bottom = Math.max(options.marginBottom ?? options.margin ?? 30, !topAxis && x.length ? labelSpace : options.x?.label ? 50 : 30);
   // A full slot for each label also prevents collisions when callers explicitly
   // request unrotated ticks. Keep an edge allowance for the first and last tick.
-  const width = Math.max(availableWidth, Math.ceil(left + right + x.length * (horizontal + 8)));
+  const width = Math.max(availableWidth, left + right + (y.length ? 160 : 0), Math.ceil(left + right + x.length * (horizontal + 8)));
   const extraMargins = Math.max(0, top - 20) + Math.max(0, bottom - 30);
   const height = Math.max((options.height ?? 400) + extraMargins, y.length ? top + bottom + y.length * 22 : 0);
   const axis = x.length && xScale?.tickRotate === undefined ? { ...xScale, tickRotate: rotate } : xScale;

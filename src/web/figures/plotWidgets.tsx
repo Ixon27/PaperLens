@@ -58,7 +58,30 @@ export function BarWidget({ spec }: { spec: Spec<'bar'> }) {
   const categories = sort ? [...spec.categories].sort((a, b) => totals.get(b)! - totals.get(a)!) : spec.categories;
   const minimum = reason ? 0 : Math.min(...data.map(d => d.value), ...err.map(d => d.low));
   const baseline = minimum / 2 || minimum;
-  return <div className="space-y-2"><ToggleChips items={names} active={active} onToggle={toggle} /><div className={controls}><Switch label="값 순 정렬" checked={sort} onChange={setSort} /><Switch label="로그 Y" checked={log} onChange={setLog} disabled={!!reason} description={reason} /></div><PlotFrame options={{ fx: { domain: categories, label: null }, x: { domain: names, label: null, axis: null }, y: { label: spec.yLabel, type: log ? 'log' : 'linear' }, color: { domain: names }, marks: [Plot.barY(data, { fx: 'category', x: 'series', y1: log ? baseline : 0, y2: 'value', fill: 'series' }), Plot.ruleX(err, { fx: 'category', x: 'series', y1: 'low', y2: 'high', stroke: 'currentColor' }), Plot.tip(data, Plot.pointer({ fx: 'category', x: 'series', y: 'value', title: (d: typeof data[number]) => `${d.category} · ${d.series}\n${d.value}${d.error === null ? '' : ` ± ${d.error}`}` }))] }} /></div>;
+  const rows: { id: string; category: string; datum: typeof data[number] | null }[] = [];
+  for (const category of categories) {
+    const entries = data.filter(d => d.category === category);
+    (entries.length ? entries : [null]).forEach(datum => {
+      rows.push({ id: String(rows.length), category, datum });
+    });
+  }
+  const labels = new Map(rows.map(row => [row.id, row.category]));
+  const bars = rows.flatMap(row => row.datum ? [{ ...row.datum, row: row.id }] : []);
+  const errors = bars.filter(d => d.error !== null).map(d => ({ ...d, low: d.value - Math.abs(d.error!), high: d.value + Math.abs(d.error!) }));
+  return <div className="space-y-2">
+    <ToggleChips items={names} active={active} onToggle={toggle} />
+    <div className={controls}><Switch label="값 순 정렬" checked={sort} onChange={setSort} /><Switch label="로그 X" checked={log} onChange={setLog} disabled={!!reason} description={reason} /></div>
+    <PlotFrame options={{
+      x: { label: spec.yLabel, type: log ? 'log' : 'linear' },
+      y: { domain: rows.map(row => row.id), tickFormat: (id: string) => labels.get(id) ?? '', label: null },
+      color: { domain: names, legend: true },
+      marks: [
+        Plot.barX(bars, { y: 'row', x1: log ? baseline : 0, x2: 'value', fill: 'series' }),
+        Plot.ruleY(errors, { y: 'row', x1: 'low', x2: 'high', stroke: 'currentColor' }),
+        Plot.tip(bars, Plot.pointer({ x: 'value', y: 'row', title: (d: typeof bars[number]) => `${d.category} · ${d.series}\n${d.value}${d.error === null ? '' : ` ± ${d.error}`}` })),
+      ],
+    }} />
+  </div>;
 }
 
 export function ScatterWidget({ spec }: { spec: Spec<'scatter'> }) {
