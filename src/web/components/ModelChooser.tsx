@@ -1,3 +1,5 @@
+import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check } from 'lucide-react';
 import type { EngineId, ModelCatalog, ModelChoice } from '../../shared/models';
 import { effortLabel, engineLabel } from '../labels';
@@ -29,27 +31,44 @@ export function effortAfterModelChange(cur: string, m: ModelChoice): string {
   return m.defaultEffort && m.efforts.includes(m.defaultEffort) ? m.defaultEffort : '';
 }
 
-export function EffortRing({ value, levels, size = 14 }: { value: string; levels: string[]; size?: number }) {
-  const c = 2 * Math.PI * 5;
-  const f = value === '' ? 0 : levels.includes(value) ? (levels.indexOf(value) + 1) / levels.length : 0.5;
+/** The icon represents the selected level, not its position in a model-specific list. */
+function EffortRing({ value, levels }: { value: string; levels: string[] }) {
+  if (value === 'max') {
+    return (
+      <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" className="shrink-0">
+        <path fill="var(--pr-effort-max)" d="M12.8 1.5c.7 3.8-1.2 5.1-2.2 6.5-.9-1-1.2-2.1-1.1-3.3C6.2 7.3 4 10.8 4 14.2 4 18.9 7.4 22 12 22s8-3.1 8-7.8c0-4.1-2.6-7.3-7.2-12.7Z" />
+        <path fill="var(--pr-warning)" d="M12.5 11.1c.3 1.7-.7 2.5-1.3 3.2-.5-.5-.7-1.1-.7-1.7-1.3 1.2-2.1 2.7-2.1 4.1a3.6 3.6 0 0 0 7.2 0c0-1.8-1.1-3.4-3.1-5.6Z" />
+      </svg>
+    );
+  }
+  const fractions: Record<string, number> = { minimal: 0.14, low: 0.25, medium: 0.5, high: 0.75, xhigh: 0.92 };
+  const fraction = value === '' ? 0 : fractions[value] ?? (levels.includes(value) ? (levels.indexOf(value) + 1) / levels.length : 0.5);
+  const color = value === 'high' ? 'var(--pr-accent)' : value === 'xhigh' ? 'var(--pr-effort)' : 'var(--pr-fg-muted)';
+  const circumference = 2 * Math.PI * 5;
   return (
-    <svg width={size} height={size} viewBox="0 0 14 14" aria-hidden className="shrink-0">
+    <svg width="18" height="18" viewBox="0 0 14 14" aria-hidden="true" className="shrink-0">
       <circle cx="7" cy="7" r="5" fill="none" stroke="var(--pr-line-strong)" strokeWidth="2" />
-      <circle
-        cx="7"
-        cy="7"
-        r="5"
-        fill="none"
-        stroke="var(--pr-effort)"
-        strokeWidth="2"
-        strokeLinecap="round"
-        transform="rotate(-90 7 7)"
-        opacity={f === 0 ? 0 : 1}
-        strokeDasharray={`${c * f} ${c}`}
-      />
+      {value === '' ? (
+        <circle cx="7" cy="7" r="5" fill="none" stroke="var(--pr-fg-dim)" strokeWidth="2" strokeLinecap="round" strokeDasharray="0.1 3.05" />
+      ) : (
+        <circle cx="7" cy="7" r="5" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"
+          transform="rotate(-90 7 7)" strokeDasharray={`${circumference * fraction} ${circumference}`} />
+      )}
     </svg>
   );
 }
+
+const isTextEntry = () => {
+  const active = document.activeElement;
+  return active instanceof HTMLElement && (active.isContentEditable || !!active.closest('input, textarea, select, [contenteditable], [role="textbox"]'));
+};
+
+/** Do not steal Shift+Tab from text entry or keyboard focus navigation. */
+const canUseHoverShortcut = () => {
+  const active = document.activeElement;
+  if (!active || active === document.body || active === document.documentElement) return true;
+  return active instanceof HTMLElement && !isTextEntry() && !active.matches(':focus-visible');
+};
 
 /** Cycle only through the selected model's supported levels and its CLI default. */
 export function EffortControl({ label, value, levels, onChange, disabled = false }: {
@@ -59,21 +78,102 @@ export function EffortControl({ label, value, levels, onChange, disabled = false
   onChange(value: string): void;
   disabled?: boolean;
 }) {
-  const options = ['', ...levels.filter((level) => level !== '')];
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const keyboardFocus = useRef(false);
+  const timer = useRef<number | undefined>(undefined);
+  const tooltipId = useId();
+  const [hovered, setHovered] = useState(false);
+  const [shortcutReady, setShortcutReady] = useState(false);
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const options = ['', ...new Set(levels.filter((level) => level !== ''))];
   const next = options[(options.indexOf(value) + 1) % options.length];
-  const description = `${label} effort: ${effortLabel(value)}${levels.length ? `. Click to change to ${effortLabel(next)}` : ''}`;
+  const nextRef = useRef(next);
+  const onChangeRef = useRef(onChange);
+  const shortcutReadyRef = useRef(false);
+  nextRef.current = next;
+  onChangeRef.current = onChange;
+  const inactive = disabled || levels.length === 0;
+  const name = effortLabel(value);
+
+  const hide = () => {
+    clearTimeout(timer.current);
+    setPosition(null);
+  };
+  const show = (delay: number) => {
+    clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = 238;
+      setPosition({
+        top: rect.bottom + 8 + 38 <= window.innerHeight ? rect.bottom + 8 : Math.max(8, rect.top - 46),
+        left: Math.max(8, Math.min(rect.left - 8, window.innerWidth - width - 8)),
+      });
+    }, delay);
+  };
+  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => {
+    if (!position) return;
+    const close = () => hide();
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => { window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true); };
+  }, [position]);
+  useEffect(() => {
+    if (!hovered || inactive) return;
+    const update = () => {
+      const ready = canUseHoverShortcut();
+      shortcutReadyRef.current = ready;
+      setShortcutReady(ready);
+    };
+    const afterFocus = () => queueMicrotask(update);
+    const cycle = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || !shortcutReadyRef.current || isTextEntry()) return;
+      event.preventDefault();
+      onChangeRef.current(nextRef.current);
+    };
+    update();
+    document.addEventListener('focusin', update);
+    document.addEventListener('focusout', afterFocus);
+    window.addEventListener('keydown', cycle);
+    return () => {
+      document.removeEventListener('focusin', update);
+      document.removeEventListener('focusout', afterFocus);
+      window.removeEventListener('keydown', cycle);
+    };
+  }, [hovered, inactive]);
+
   return (
-    <button
-      type="button"
-      aria-label={description}
-      title={description}
-      disabled={disabled || levels.length === 0}
-      className="no-drag inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-1.5 text-[11.5px] text-fg-muted hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
-      onClick={() => onChange(next)}
-    >
-      <EffortRing value={value} levels={levels} size={16} />
-      <span>{effortLabel(value)}</span>
-    </button>
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label={`${label} thinking effort: ${name}${inactive ? '' : ` · 클릭하여 ${effortLabel(next)}로 변경`}`}
+        aria-describedby={position ? tooltipId : undefined}
+        disabled={inactive}
+        className="no-drag inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-fg-muted hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
+        onMouseEnter={() => { setHovered(true); show(150); }}
+        onMouseLeave={() => { setHovered(false); if (!keyboardFocus.current) hide(); }}
+        onFocus={() => {
+          keyboardFocus.current = buttonRef.current?.matches(':focus-visible') ?? false;
+          if (keyboardFocus.current) show(0);
+        }}
+        onBlur={() => { keyboardFocus.current = false; if (!hovered) hide(); }}
+        onClick={() => onChange(next)}
+      >
+        <span className="grid h-7 w-7 place-items-center rounded-full bg-sunken"><EffortRing value={value} levels={levels} /></span>
+      </button>
+      {position && createPortal(
+        <div id={tooltipId} role="tooltip" className="pointer-events-none fixed z-[100] flex h-[38px] w-[238px] items-center justify-between gap-2 rounded-xl border border-line-strong bg-raised px-3 text-[13px] text-fg shadow-pop" style={position}>
+          <span className="whitespace-nowrap">Thinking effort: {name}</span>
+          {hovered && shortcutReady && <span aria-hidden="true" className="flex items-center gap-1">
+            <kbd className="grid h-6 min-w-6 place-items-center rounded-md border border-line-strong bg-sunken px-1 font-sans text-[14px] text-fg-muted">⇧</kbd>
+            <kbd className="grid h-6 min-w-6 place-items-center rounded-md border border-line-strong bg-sunken px-1 font-sans text-[14px] text-fg-muted">⇥</kbd>
+          </span>}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 

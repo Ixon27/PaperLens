@@ -199,8 +199,8 @@ export function AiPicker() {
         title={`빠른 작업: ${quickLabel} · ${effortLabel(profiles.quickEffort)}\n깊은 작업: ${heavyLabel} · ${effortLabel(profiles.heavyEffort)}`}
         onClick={() => setOpen((o) => !o)}
       >
-        <span className="font-medium text-accent">{engineLabel(engine)}</span>
-        <span className="truncate text-fg">{quickLabel}</span>
+        <span className="font-medium text-fg-muted">{engineLabel(engine)}</span>
+        <span className="truncate font-medium text-accent">{quickLabel}</span>
         {heavyLabel !== quickLabel && (
           <>
             <span className="text-fg-dim">·</span>

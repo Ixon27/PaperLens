@@ -5,14 +5,14 @@ export function engineLabel(e?: string | null): string {
 }
 
 export const EFFORT_LABELS: Record<string, string> = {
-  '': 'Default',
-  minimal: 'Minimal',
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'Very High',
-  max: 'Max',
-  ultra: 'Ultra',
+  '': 'auto',
+  minimal: 'minimal',
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  xhigh: 'xhigh',
+  max: 'max',
+  ultra: 'ultra',
 };
 
 export const effortLabel = (v: string): string => EFFORT_LABELS[v] ?? v;

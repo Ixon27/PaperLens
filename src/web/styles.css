@@ -26,6 +26,7 @@
   --pr-danger: #d93636;
   --pr-danger-soft: rgb(217 54 54 / 0.1);
   --pr-effort: #a8812f;
+  --pr-effort-max: #ed682c;
   --pr-scrim: rgb(15 18 24 / 0.32);
   --pr-shadow-pop: 0 12px 32px -8px rgb(15 18 24 / 0.18), 0 0 0 1px rgb(15 18 24 / 0.04);
 }
@@ -55,6 +56,7 @@
   --pr-danger: #ff6b6b;
   --pr-danger-soft: rgb(255 107 107 / 0.14);
   --pr-effort: #d8c090;
+  --pr-effort-max: #ff843f;
   --pr-scrim: rgb(5 7 10 / 0.55);
   --pr-shadow-pop: 0 16px 48px -12px rgb(0 0 0 / 0.6);
 }
