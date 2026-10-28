@@ -99,6 +99,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: Smoke fresh browser connections on Windows
+        run: npx tsx scripts/smoke-first-connect.ts
       - name: Smoke current npm Claude entrypoint on Windows
         run: |
           npm install --global @anthropic-ai/claude-code

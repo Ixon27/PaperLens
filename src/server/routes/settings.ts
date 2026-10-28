@@ -34,15 +34,16 @@ settings.post('/providers/:engine/code', async (c) => {
   catch (e) { throw new HttpError(400, e instanceof Error ? e.message : '인증 코드를 전달하지 못했습니다'); }
   return c.json({ ok: true });
 });
-settings.post('/providers/:engine/:action', (c) => {
+settings.post('/providers/:engine/connect', (c) => {
   desktopOnly();
   const engine = provider(c.req.param('engine'));
-  const action = c.req.param('action');
-  if (action === 'cancel') cancelProviderOperation(engine);
-  else if (action === 'install' || action === 'login') {
-    try { startProviderOperation(engine, action); }
-    catch (e) { throw new HttpError(400, e instanceof Error ? e.message : '작업을 시작하지 못했습니다'); }
-  } else throw new HttpError(400, '알 수 없는 작업입니다');
+  try { startProviderOperation(engine); }
+  catch (e) { throw new HttpError(400, e instanceof Error ? e.message : '작업을 시작하지 못했습니다'); }
+  return c.json({ ok: true });
+});
+settings.post('/providers/:engine/cancel', (c) => {
+  desktopOnly();
+  cancelProviderOperation(provider(c.req.param('engine')));
   return c.json({ ok: true });
 });
 

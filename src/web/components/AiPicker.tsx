@@ -117,12 +117,44 @@ export function AiPicker() {
   }, [toast]);
 
   useEffect(() => {
+    let disposed = false;
+    const watchers = new Map<EngineId, number>();
     const onProviderChanged = () => {
       void api<Record<EngineId, boolean>>('/api/engines').then(setEngines).catch(() => {});
+      void api<Settings>('/api/settings').then((s) => {
+        if (savingRef.current) return;
+        savedRef.current = s;
+        setSettings(s);
+        window.dispatchEvent(new CustomEvent('paperlens-model-settings', { detail: s }));
+      }).catch(() => {});
       void refreshCatalogAfterProviderChange();
     };
+    const watchProvider = async (engine: EngineId) => {
+      try {
+        const status = await api<{ operation: { state: string } | null }>(`/api/providers/${engine}`);
+        if (disposed) return;
+        if (status.operation?.state === 'running') {
+          watchers.set(engine, window.setTimeout(() => void watchProvider(engine), 2000));
+          return;
+        }
+      } catch { /* Reopening AI 연결 can refresh a failed status check. */ }
+      watchers.delete(engine);
+      if (!disposed) onProviderChanged();
+    };
+    const onProviderStarted = (event: Event) => {
+      const engine = (event as CustomEvent<EngineId>).detail;
+      if ((engine !== 'claude' && engine !== 'codex') || watchers.has(engine)) return;
+      watchers.set(engine, 0);
+      void watchProvider(engine);
+    };
     window.addEventListener('paperlens-provider-changed', onProviderChanged);
-    return () => window.removeEventListener('paperlens-provider-changed', onProviderChanged);
+    window.addEventListener('paperlens-provider-started', onProviderStarted);
+    return () => {
+      disposed = true;
+      for (const timer of watchers.values()) clearTimeout(timer);
+      window.removeEventListener('paperlens-provider-changed', onProviderChanged);
+      window.removeEventListener('paperlens-provider-started', onProviderStarted);
+    };
   }, []);
 
   useEffect(() => {
