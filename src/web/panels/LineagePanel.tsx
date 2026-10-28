@@ -62,6 +62,7 @@ function LineageInner() {
   const toast = useToast();
   const [result, setResult] = useState<Response | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [active, setActive] = useState(() => new Set(roleLabels));
   const [selected, setSelected] = useState<string | null>(null);
   const [strand, setStrand] = useState<number | null>(null);
@@ -69,15 +70,17 @@ function LineageInner() {
   const load = useCallback(async () => {
     try {
       setResult(await api<Response>(`/api/papers/${paper.id}/lineage`));
+      setLoadError(null);
     } catch (e) {
-      toast((e as Error).message, { tone: 'error' });
+      setLoadError((e as Error).message);
     } finally {
       setLoaded(true);
     }
-  }, [paper.id, toast]);
+  }, [paper.id]);
   useEffect(() => {
     setResult(null);
     setLoaded(false);
+    setLoadError(null);
     setSelected(null);
     setStrand(null);
     void load();
@@ -144,7 +147,8 @@ function LineageInner() {
       </div>}
       <JobBar job={job.job} onCancel={() => void job.cancel()} label="계보 생성 중…" />
     </div>
-    {!lineage && loaded && !job.running && <div className="p-6 text-[13px] text-fg-muted">
+    {loadError && <div role="alert" className="p-6 text-[13px] text-danger">{loadError} <button className={smallBtnCls} onClick={() => void load()}>다시 불러오기</button></div>}
+    {!loadError && !lineage && loaded && !job.running && <div className="p-6 text-[13px] text-fg-muted">
       <p>이 논문이 기대고 있는 선행 연구와 이어간 후속 연구를 실제 인용 데이터로 그립니다.</p>
       <button className={`${primaryBtnCls} mt-3`} onClick={() => void generate()}>계보 만들기</button>
     </div>}

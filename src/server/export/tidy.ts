@@ -8,12 +8,12 @@ const JOSA_RE =
   /\)\s+(의|을|를|은|는|이|가|와|과|로|으로|도|만|에|에서|에게|이나|처럼|보다|부터|까지)(도|는|만|의|나)?(?=[\s,.:;)\]]|$)/g;
 
 /** Apply `fn` to every line outside ``` fences and `$$` display-math blocks. */
-export function mapOutsideBlocks(md: string, fn: (line: string) => string): string {
+export function mapOutsideBlocks(md: string, fn: (line: string, index: number) => string): string {
   let fence = false;
   let math = false;
   return md
     .split('\n')
-    .map((line) => {
+    .map((line, index) => {
       const st = line.trim();
       if (!math && st.startsWith('```')) {
         fence = !fence;
@@ -27,7 +27,7 @@ export function mapOutsideBlocks(md: string, fn: (line: string) => string): stri
         return line;
       }
       if (math) return line;
-      return fn(line);
+      return fn(line, index);
     })
     .join('\n');
 }

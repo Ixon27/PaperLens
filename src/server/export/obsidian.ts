@@ -83,9 +83,28 @@ export function pageLink(pdfPath: string | null, page: number, end?: number): st
 }
 
 export function convertPageRefs(md: string, pdfPath: string | null): string {
-  return md.replace(pageCiteRe(), (_m, a: string, b: string | undefined) =>
-    pageLink(pdfPath, Number(a), b ? Number(b) : undefined),
-  );
+  const lines = md.split('\n');
+  const outside = new Set<number>();
+  // mapOutsideBlocks skips fenced code and display math.
+  mapOutsideBlocks(md, (line, index) => {
+    outside.add(index);
+    return line;
+  });
+  const tableRows = new Set<number>();
+  const separator = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)+\|?\s*$/;
+  for (let i = 0; i + 1 < lines.length; i++) {
+    if (!outside.has(i) || !outside.has(i + 1) || !lines[i].includes('|') || !separator.test(lines[i + 1])) continue;
+    tableRows.add(i);
+    let row = i + 2;
+    while (row < lines.length && outside.has(row) && lines[row].includes('|') && lines[row].trim()) {
+      tableRows.add(row++);
+    }
+    i = row - 1;
+  }
+  return lines.map((line, i) => line.replace(pageCiteRe(), (_m, a: string, b: string | undefined) => {
+    const link = pageLink(pdfPath, Number(a), b ? Number(b) : undefined);
+    return tableRows.has(i) && pdfPath ? link.replace('|', '\\|') : link;
+  })).join('\n');
 }
 
 export function shiftHeadings(md: string): string {
