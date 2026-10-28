@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
-// Run only on a disposable Windows CI runner, without account credentials.
-if (process.platform !== 'win32' || !process.env.CI) throw new Error('Windows CI에서만 실행할 수 있습니다.');
+// The isolated home is discarded with the GitHub-hosted runner after the job.
+if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted') throw new Error('GitHub 호스팅 Windows 러너에서만 실행할 수 있습니다.');
 const home = await mkdtemp(join(tmpdir(), 'paperlens-connect-smoke-'));
 const windows = process.env.SystemRoot || 'C:\\Windows';
 Object.assign(process.env, {
@@ -49,14 +49,6 @@ try {
   failure = error;
 } finally {
   cancelProviderOperations();
-  try {
-    await Promise.race([
-      rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }),
-      delay(15_000).then(() => { throw new Error('격리된 테스트 폴더를 정리하지 못했습니다.'); }),
-    ]);
-  } catch (error) {
-    failure ??= error;
-  }
 }
 if (failure) console.error(failure instanceof Error ? failure.message : String(failure));
 // Browser helpers may inherit stdio even after the CLI process tree is cancelled on Windows.
