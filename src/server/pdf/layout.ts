@@ -35,7 +35,7 @@ export interface Block {
 }
 
 /** Bump when block boundaries, kinds or spans change, so untranslated papers are split again. */
-export const LAYOUT_VERSION = 3;
+export const LAYOUT_VERSION = 4;
 
 export interface TextViewport {
   width: number;
@@ -92,18 +92,18 @@ interface Piece {
   pageH: number;
 }
 
-const REF_HEADING = /^\s*(\d+\.?\s*)?(references( and notes)?|literature cited|bibliography|참고문헌)\s*$/i;
+const REF_HEADING = /^\s*(?:(?:\d+|[IVX]+|[A-Z])\.?\s*)?(?:references?(?: and notes)?|reference list|notes and references|works cited|literature cited|bibliography|참고\s?문헌)\s*$/i;
 const REF_END = /^\s*(supplementary|appendix|acknowledg|figure legends)/i;
-const SECTION_HEADING = /^(?:(?:\d+(?:\.\d+)*|[IVX]+|[A-Z])\.?\s+)?(?:abstract|introduction|background|materials and methods|methods|methodology|experimental(?: procedures| section)?|results(?: and discussion)?|discussion|conclusions?|acknowledg(?:e)?ments?|funding|conflicts? of interest|author contributions|data availability(?: statement)?)\s*$/i;
+const SECTION_HEADING = /^(?:(?:\d+(?:\.\d+)*|[IVX]+|[A-Z])\.?\s+)?(?:abstract|introduction|background|related work|preliminaries|problem (?:formulation|statement|setup)|theory|theoretical (?:background|framework)|(?:the )?model|approach|proposed method|materials and methods|methods?(?: and materials)?|methodology|experimental(?: procedures| section| setup| results)?|experiments?|results(?: and discussion)?|discussion|evaluation|simulations?|numerical (?:results|experiments|methods)|analysis|limitations|conclusions?(?: and future work)?|future work|summary|notation|nomenclature|proofs?|appendix(?: [A-Z])?|code availability|acknowledg(?:e)?ments?|funding|conflicts? of interest|author contributions|data availability(?: statement)?)\s*$/i;
 const NUMBERED_HEADING = /^(?:\d+(?:\.\d+)*\.?|[IVX]+\.|[A-Z]\.)\s+\p{Lu}/u;
 const LIST_START = /^(?:\[\d{1,3}\]|\d{1,3}[.)]|[•●▪])\s/;
 // "Fig. 2." / "Table 1:" / Springer's "Fig. 4 Title" (number followed directly by a capitalized title).
-const CAPTION = /^(?:fig(?:ure)?|table|scheme|chart|supplementary (?:figure|table))\.?\s*S?(?:\d+|[IVX]+)[A-Za-z]?(?:\s*[.:|—–-]|\s+(?=\p{Lu}))/iu;
-const KEYWORDS = /^(?:key\s?words?|index terms|abbreviations)\s*[:：.—–-]/i;
-const ABSTRACT_HEADING = /^(?:\d+\.?\s*)?abstract\.?$/i;
-const ABSTRACT_INLINE = /^abstract\s*[:.—–-]?\s+\S/i;
+const CAPTION = /^(?:fig(?:ure)?s?|table|scheme|chart|algorithm|listing|그림|표|supplementary (?:figure|table))\.?\s*(?:(?:[A-Z]\.?)?\d+(?:\.\d+)*|[IVX]+)[A-Za-z]?(?:\s*[.:|—–-]|\s+(?=[\p{Lu}가-힣]))/iu;
+const KEYWORDS = /^(?:key\s?words?(?: and phrases)?|additional key words and phrases|index terms|abbreviations|(?:\d{4} )?mathematics subject classification|msc(?: ?\d{4})?|pacs(?: numbers?)?|ccs concepts|subject headings|jel(?: classification)?(?: codes?)?)\s*[:：.—–-]/i;
+const ABSTRACT_HEADING = /^(?:\d+\.?\s*)?(?:abstract|summary|초록|요약)\.?$/i;
+const ABSTRACT_INLINE = /^abstract(?:\s*[:.—–-]\s*|\s+)\S/i;
 /** Administrative back matter: not part of the paper's argument, so not reading text. */
-const BACK_MATTER = /^(?:\d+\.?\s*)?(?:supplementary materials?|author contributions?|funding|institutional review board statement|informed consent statement|ethics statement|data availability(?: statement)?|conflicts? of interest|competing interests?|declaration of competing interest|acknowledg(?:e)?ments?|abbreviations)\b/i;
+const BACK_MATTER = /^(?:\d+\.?\s*)?(?:supplementary materials?|author contributions?|funding|institutional review board statement|informed consent statement|ethics statement|data availability(?: statement)?|code availability|data and code availability|availability of data and materials|software availability|reproducibility statement|broader impacts?(?: statement)?|credit authorship contribution statement|declarations?(?: of (?:competing )?interests?)?|disclosures?|author information|additional information|publisher'?s note|conflicts? of interest|competing interests?|declaration of competing interest|acknowledg(?:e)?ments?|abbreviations)\b/i;
 const PAGE_NUMBER = /^(?:page\s*)?\d{1,4}(?:\s*(?:of|\/)\s*\d{1,4})?$/i;
 /** Running headers/footers live in these top/bottom fractions of the page. */
 const MARGIN_BAND = 0.075;
@@ -116,6 +116,10 @@ const shiftSpans = (spans: TextSpan[], by: number): TextSpan[] => spans.map(([pa
  */
 function joinMapped(a: Mapped, b: Mapped): Mapped {
   if (!a.text) return b;
+  const left = /([A-Za-z]+(?:-[A-Za-z]+)*)-$/.exec(a.text)?.[1] ?? '';
+  if (left.length === 1 || left.includes('-') || left === 'self' || left === 'non') {
+    return { text: a.text + b.text, spans: [...a.spans, ...shiftSpans(b.spans, a.text.length)] };
+  }
   if (/[A-Za-z]-$/.test(a.text) && /^[a-z]/.test(b.text)) {
     const len = a.text.length - 1;
     const kept = a.spans
@@ -143,7 +147,7 @@ export function markReferences(blocks: Block[]): void {
   }
   if (start === -1) return;
   for (let i = start + 1; i < blocks.length; i++) {
-    if (REF_END.test(blocks[i].text)) break;
+    if (blocks[i].kind === 'heading' || REF_END.test(blocks[i].text)) break;
     blocks[i].isRef = true;
   }
 }
@@ -349,13 +353,13 @@ function isHeading(line: Line, before: Line | undefined, after: Line | undefined
   if (line.text.length > 120 || /[.!?;,]$/.test(line.text)) return false;
   const neighbor = after ?? before;
   if (!neighbor) return false;
-  const headingText = line.text.replace(/^\d+(?:\.\d+)*\.?\s+/, '');
+  const headingText = line.text.replace(/^(?:\d+(?:\.\d+)*\.?|[IVX]+\.|[A-Z]\.)\s+/, '');
   // A different font inside prose (especially italic reference journals) is not a heading.
   const separatedBefore = !before || line.baseline - before.baseline > line.size * 1.35;
   const separatedAfter = !after || after.baseline - line.baseline > line.size * 1.35;
   return line.font !== neighbor.font && line.size >= neighbor.size * 0.98 &&
     line.box[2] - line.box[0] < width * 0.8 && separatedBefore && separatedAfter &&
-    /^[A-Z가-힣]/.test(headingText) && !/[.,;:[\](){}=]|\d{4}/.test(headingText);
+    /^[\p{Lu}\p{Script=Greek}가-힣]/u.test(headingText) && !/[.,;[\]{}=]|\d{4}/.test(headingText);
 }
 
 /**

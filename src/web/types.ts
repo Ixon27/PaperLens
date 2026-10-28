@@ -1,5 +1,6 @@
 import type { ExplainAnchor } from '../shared/explain';
 import type { MadeBy, ModelSpec } from '../shared/models';
+import type { FieldId } from '../shared/fields';
 
 export interface Author {
   family: string;
@@ -39,7 +40,8 @@ export interface PaperDto {
   openalexId: string | null;
   hasPdf: boolean;
   pageCount: number | null;
-  researchTypes: string[] | null;
+  field: FieldId | null;
+  fieldSuggested: FieldId | null;
   status: PaperStatus;
   job: JobDto | null;
   abstract?: string | null;
@@ -176,14 +178,6 @@ export interface SystemInfo {
   dataDir: string;
 }
 
-export type ResearchType = 'wetlab' | 'omics' | 'review' | 'clinical';
-
-export const RESEARCH_TYPE_LABELS: Record<ResearchType, string> = {
-  wetlab: '실험실 측정(wet-lab)',
-  omics: '오믹스·계산·생물정보',
-  review: '리뷰·메타분석',
-  clinical: '임상·코호트·역학',
-};
 
 export interface AskInput {
   action: 'ask' | 'explain' | 'figure' | 'card';

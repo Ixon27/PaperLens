@@ -5,7 +5,7 @@ import { Switch } from './controls';
 
 type Compare = Extract<FigureSpec, { kind: 'compare' }>;
 type Table = Extract<FigureSpec, { kind: 'table' }>;
-const numberText = (n: number) => Number(n.toPrecision(4)).toLocaleString();
+const numberText = (n: number) => n !== 0 && (Math.abs(n) < 1e-3 || Math.abs(n) >= 1e6) ? n.toExponential(2) : Number(n.toPrecision(4)).toLocaleString();
 
 export function CompareWidget({ spec }: { spec: Compare }) {
   const [baseline, setBaseline] = useState(0);

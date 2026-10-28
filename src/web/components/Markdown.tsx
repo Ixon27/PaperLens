@@ -1,10 +1,11 @@
-import { memo } from 'react';
+import { memo, type ComponentProps } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import { linkPageCites, parsePageHref } from '../../shared/cite';
 import { normalizeMath } from '../markdown-math';
+import { KATEX_OPTIONS } from '../katex-options';
 import { remarkMark } from '../markdown-mark';
 import { SourceChip } from './SourceChip';
 
@@ -26,7 +27,7 @@ export function PageChip({ page, label, onJump }: { page: number; label?: string
 }
 
 const remarkPlugins = [remarkGfm, remarkMath, remarkMark];
-const rehypePlugins = [rehypeKatex];
+const rehypePlugins: ComponentProps<typeof ReactMarkdown>['rehypePlugins'] = [[rehypeKatex, KATEX_OPTIONS]];
 
 function MarkdownImpl({ text, className }: { text: string; className?: string }) {
   const components: Components = {

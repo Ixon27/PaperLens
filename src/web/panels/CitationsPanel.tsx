@@ -8,29 +8,18 @@ import { usePaper } from '../state/paper';
 import { useJob } from '../state/useJob';
 import type { MadeBy } from '../../shared/models';
 
-interface EpmcItemDto {
-  title: string;
-  authorString: string | null;
-  journalTitle: string | null;
-  pubYear: number | null;
-  doi: string | null;
-  pmid: string | null;
-  citedByCount: number;
-  inLibrary: string | null;
-}
-
-type Source = 'related' | 'recentCiting' | 'topCiting' | 'epmc';
+type Source = 'related' | 'recentCiting' | 'topCiting' | 'topic';
 
 interface RelatedDto {
   fetchedAt: string;
   related: WorkSummaryDto[];
   recentCiting: WorkSummaryDto[];
   topCiting: WorkSummaryDto[];
-  epmc: { keywords: string[]; items: EpmcItemDto[] } | null;
+  topic: { name: string; items: WorkSummaryDto[] } | null;
   errors: Source[];
 }
 
-/** One row shape for both OpenAlex and Europe PMC items. */
+/** Display shape for an OpenAlex work. */
 interface RelatedRow {
   key: string;
   title: string;
@@ -54,20 +43,6 @@ function fromOpenAlex(w: WorkSummaryDto): RelatedRow {
     citedBy: w.citedBy,
     oa: Boolean(w.oaPdf),
     inLibrary: w.inLibrary,
-  };
-}
-
-function fromEpmc(it: EpmcItemDto, i: number): RelatedRow {
-  return {
-    key: it.pmid ?? it.doi ?? `epmc-${i}`,
-    title: it.title,
-    doi: it.doi,
-    authors: it.authorString,
-    year: it.pubYear,
-    venue: it.journalTitle,
-    citedBy: it.citedByCount,
-    oa: false,
-    inLibrary: it.inLibrary,
   };
 }
 
@@ -159,16 +134,16 @@ function RelatedSection({ paperId }: { paperId: string }) {
           <Group title="비슷한 논문" rows={data.related.map(fromOpenAlex)} failed={failed('related')} />
           <Group title="최근 이 논문을 인용한 논문" rows={data.recentCiting.map(fromOpenAlex)} failed={failed('recentCiting')} />
           <Group title="많이 인용된 인용 논문" rows={data.topCiting.map(fromOpenAlex)} failed={failed('topCiting')} />
-          {data.epmc ? (
+          {data.topic ? (
             <Group
-              title={`같은 주제의 최신 논문 · ${data.epmc.keywords.join(', ')}`}
-              rows={data.epmc.items.map(fromEpmc)}
-              failed={failed('epmc')}
+              title={`같은 주제의 최신 논문 · ${data.topic.name}`}
+              rows={data.topic.items.map(fromOpenAlex)}
+              failed={failed('topic')}
             />
           ) : (
             <section className="mb-4">
               <h4 className="mb-1 text-[12px] font-semibold text-fg-muted">같은 주제의 최신 논문</h4>
-              <div className="text-[12px] text-fg-dim">{failed('epmc') ? '불러오지 못했습니다' : '주제 키워드를 찾지 못해 검색하지 않았습니다'}</div>
+              <div className="text-[12px] text-fg-dim">{failed('topic') ? '불러오지 못했습니다' : '주제 정보를 찾지 못해 검색하지 않았습니다'}</div>
             </section>
           )}
         </>

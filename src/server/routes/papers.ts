@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Hono } from 'hono';
+import { isFieldId, type FieldId } from '../../shared/fields';
 import { PATHS } from '../config';
 import { db, getArtifact, getPaper, isTranslatable, madeByOf, now, parseAuthors, refreshFts, type BlockRow, type PaperRow } from '../db';
 import { latestJobs, snapshotOf, type JobRow } from '../jobs';
@@ -9,9 +10,18 @@ import { HttpError } from '../http-error';
 import { orderSections } from '../tasks/analysis';
 import { attachPdf, ensureCurrentLayout, importFromInput, importUpload, normalizeDoi, paperIdByDoi } from '../tasks/import';
 import { ensureTranslationSentences } from '../tasks/translation-alignment';
+import { suggestField } from '../tasks/suggest-field';
 import type { MadeBy } from '../../shared/models';
 
 export const papers = new Hono();
+
+function fieldInput(v: unknown): FieldId | null {
+  if (v === undefined || v === null || v === '' || v === 'auto') return null;
+  if (isFieldId(v)) return v;
+  throw new HttpError(400, '알 수 없는 분야입니다');
+}
+
+const fieldSuggestions = new Map<string, Promise<FieldId | null>>();
 
 export function paperStatus(paperId: string) {
   const blocks = db.prepare('SELECT is_ref, text, kind FROM blocks WHERE paper_id=?').all(paperId) as Pick<BlockRow, 'is_ref' | 'text' | 'kind'>[];
@@ -48,7 +58,8 @@ function paperDto(p: PaperRow) {
     openalexId: p.openalex_id,
     hasPdf: Boolean(p.pdf_file),
     pageCount: p.page_count,
-    researchTypes: p.research_types ? (JSON.parse(p.research_types) as string[]) : null,
+    field: isFieldId(p.field) ? p.field : null,
+    fieldSuggested: isFieldId(p.field_suggested) ? p.field_suggested : null,
     status: paperStatus(p.id),
     // Running job first; otherwise the latest import job so its final message (e.g. "no OA PDF") stays visible.
     job: jobDto(running ?? (importJob && !p.pdf_file ? importJob : null)),
@@ -75,9 +86,9 @@ papers.get('/papers', (c) => {
 });
 
 papers.post('/papers/import', async (c) => {
-  const { input } = await c.req.json<{ input?: string }>();
+  const { input, field } = await c.req.json<{ input?: string; field?: unknown }>();
   if (!input?.trim()) throw new HttpError(400, 'DOI나 arXiv 링크가 아닙니다');
-  return c.json(await importFromInput(input));
+  return c.json(await importFromInput(input, fieldInput(field)));
 });
 
 papers.post('/papers/upload', async (c) => {
@@ -85,10 +96,11 @@ papers.post('/papers/upload', async (c) => {
   const raw = body['file'];
   const files = (Array.isArray(raw) ? raw : [raw]).filter((f): f is File => f instanceof File);
   if (!files.length) throw new HttpError(400, 'PDF 파일이 없습니다');
+  const field = fieldInput(body['field']);
   const results = [];
   for (const f of files) {
     try {
-      results.push(await importUpload(f.name, Buffer.from(await f.arrayBuffer())));
+      results.push(await importUpload(f.name, Buffer.from(await f.arrayBuffer()), field));
     } catch (e) {
       results.push({ name: f.name, error: e instanceof Error ? e.message : String(e) });
     }
@@ -106,6 +118,30 @@ papers.get('/papers/:id', (c) => {
   const p = requirePaper(c.req.param('id'));
   db.prepare('UPDATE papers SET last_opened_at=? WHERE id=?').run(now(), p.id);
   return c.json({ ...paperDto(p), abstract: p.abstract });
+});
+
+papers.put('/papers/:id/field', async (c) => {
+  const paper = requirePaper(c.req.param('id'));
+  const { field } = await c.req.json<{ field?: unknown }>();
+  if (!isFieldId(field)) throw new HttpError(400, '분야를 고르세요');
+  db.prepare('UPDATE papers SET field=?, updated_at=? WHERE id=?').run(field, now(), paper.id);
+  const updated = getPaper(paper.id)!;
+  return c.json({ ...paperDto(updated), abstract: updated.abstract });
+});
+
+papers.post('/papers/:id/field/suggest', async (c) => {
+  const paper = requirePaper(c.req.param('id'));
+  if (isFieldId(paper.field_suggested)) return c.json({ suggested: paper.field_suggested });
+  let pending = fieldSuggestions.get(paper.id);
+  if (!pending) {
+    pending = suggestField(paper).finally(() => fieldSuggestions.delete(paper.id));
+    fieldSuggestions.set(paper.id, pending);
+  }
+  try {
+    return c.json({ suggested: await pending });
+  } catch (e) {
+    throw new HttpError(502, e instanceof Error ? e.message : String(e));
+  }
 });
 
 papers.patch('/papers/:id', async (c) => {

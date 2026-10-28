@@ -27,6 +27,30 @@ describe('PDF.js text layout', () => {
     expect(byText('2.').text).toBe('2. Lee K. Microbiome "dark matter" <review>.');
   });
 
+  it.each([
+    ['k-', 'means', 'k-means'],
+    ['self-', 'attention', 'self-attention'],
+    ['state-of-the-', 'art', 'state-of-the-art'],
+    ['micro-', 'biome', 'microbiome'],
+  ])('joins %s and %s with aligned spans', (left, right, expected) => {
+    const page = onePage(textContent([
+      textItem(left, 72, 690, 300),
+      textItem(right, 72, 676, 300),
+    ]));
+    expect(page).toHaveLength(1);
+    expect(page[0].text).toBe(expected);
+    expect(page[0].spans.map(([, , start, end]) => page[0].text.slice(start, end))).toEqual([
+      expected.slice(0, expected.length - right.length), right,
+    ]);
+  });
+
+  it('recognizes algorithm captions', () => {
+    const page = onePage(textContent([
+      textItem('Algorithm 1 Stochastic gradient descent', 72, 690, 300),
+    ]));
+    expect(byText('Algorithm 1', page).kind).toBe('caption');
+  });
+
   it('marks only blocks after the LAST references heading', () => {
     expect(blocks.filter((block) => block.isRef).map((block) => block.text)).toEqual([
       '1. Smith J. Gut bacteria. Nature 2020.',
@@ -44,6 +68,17 @@ describe('PDF.js text layout', () => {
       textItem(heading, 72, 660, 250),
       textItem('Back matter is not a reference.', 72, 630, 300),
     ]));
+    expect(page.filter((block) => block.isRef).map((block) => block.text)).toEqual(['1. Smith J. A reference.']);
+  });
+
+  it('stops references at a subsequent heading', () => {
+    const page = onePage(textContent([
+      textItem('References', 72, 720, 100),
+      textItem('1. Smith J. A reference.', 72, 690, 300),
+      textItem('A Proofs', 72, 660, 120, 12, 'heading'),
+      textItem('Proof details are not references.', 72, 630, 300),
+    ]));
+    expect(byText('A Proofs', page).kind).toBe('heading');
     expect(page.filter((block) => block.isRef).map((block) => block.text)).toEqual(['1. Smith J. A reference.']);
   });
 

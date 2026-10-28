@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { Hono } from 'hono';
+import { FIELD_LABELS, isFieldId } from '../../shared/fields';
 import { PATHS } from '../config';
 import { db, getArtifact, getPaper, parseAuthors, type PaperRow } from '../db';
 import { attachmentName, buildNote, citekey, pdfVaultPath, type NoteHighlight } from '../export/obsidian';
@@ -162,12 +163,6 @@ exportRoutes.post('/papers/:id/export', async (c) => {
   const authors = parseAuthors(paper);
   const key = citekey({ authors, year: paper.year });
   const art = getArtifact(paper.id, 'analysis');
-  let researchTypes: string[] = [];
-  if (art) {
-    const meta = JSON.parse(art.meta) as { types?: string[] };
-    researchTypes = meta.types ?? [];
-  }
-  if (!researchTypes.length && paper.research_types) researchTypes = JSON.parse(paper.research_types) as string[];
 
   const rows = db
     .prepare('SELECT id,type,position,text,image_file,note FROM highlights WHERE paper_id=?')
@@ -202,7 +197,7 @@ exportRoutes.post('/papers/:id/export', async (c) => {
       issue: paper.issue,
       pages: paper.pages,
       doi: paper.doi,
-      researchTypes,
+      fieldLabel: isFieldId(paper.field) ? FIELD_LABELS[paper.field] : null,
     },
     tags: (body.tags ?? []).map((t) => t.trim()).filter(Boolean),
     analysis: exportAnalysis(paper.id) || null,

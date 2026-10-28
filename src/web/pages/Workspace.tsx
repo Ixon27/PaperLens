@@ -14,9 +14,11 @@ import {
   Quote,
   type LucideIcon,
 } from 'lucide-react';
+import { FIELD_LABELS } from '../../shared/fields';
 import { api } from '../api';
 import { btnCls, chipCls, ghostBtnCls } from '../components/Dialog';
 import { ExportDialog } from '../components/ExportDialog';
+import { FieldConfirmBar } from '../components/FieldConfirmBar';
 import { JobBar, Spinner } from '../components/JobBar';
 import { LiquidDrop } from '../components/LiquidDrop';
 import { MetadataDialog } from '../components/MetadataDialog';
@@ -220,6 +222,9 @@ function WorkspaceInner() {
           {paper.title}
           {meta && <span className="ml-2 font-normal text-fg-muted">{meta}</span>}
         </button>
+        <button className={`${chipCls(false)} shrink-0`} title="분야 바꾸기" onClick={() => setMetaOpen(true)}>
+          {paper.field ? FIELD_LABELS[paper.field] : '분야 미정'}
+        </button>
         <button className={`${chipCls(showTranslation)} shrink-0`} aria-pressed={showTranslation} onClick={() => setShowTranslation(!showTranslation)}>
           <Languages size={14} />
           번역
@@ -231,6 +236,7 @@ function WorkspaceInner() {
           정보 수정
         </button>
       </div>
+      {paper.field === null && <FieldConfirmBar key={paper.id} />}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div ref={bodyRef} className="relative flex min-w-0 flex-1 overflow-hidden">
           <div

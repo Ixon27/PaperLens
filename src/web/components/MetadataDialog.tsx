@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { FIELDS, FIELD_LABELS } from '../../shared/fields';
 import { api } from '../api';
 import type { Author, PaperDto } from '../types';
 import { btnCls, Dialog, Field, inputCls, primaryBtnCls } from './Dialog';
@@ -22,6 +23,7 @@ export function MetadataDialog({ paper, onClose, onSaved }: { paper: PaperDto; o
   const [f, setF] = useState({
     title: paper.title,
     authors: authorsToText(paper.authors),
+    field: paper.field ?? paper.fieldSuggested ?? '',
     year: paper.year?.toString() ?? '',
     journal: paper.journal ?? '',
     volume: paper.volume ?? '',
@@ -52,6 +54,9 @@ export function MetadataDialog({ paper, onClose, onSaved }: { paper: PaperDto; o
           doi: f.doi.trim() || null,
         },
       });
+      if (f.field && f.field !== paper.field) {
+        await api(`/api/papers/${paper.id}/field`, { method: 'PUT', json: { field: f.field } });
+      }
       toast('논문 정보를 저장했습니다');
       onSaved();
       onClose();
@@ -83,6 +88,12 @@ export function MetadataDialog({ paper, onClose, onSaved }: { paper: PaperDto; o
       </Field>
       <Field label="저자" hint="한 줄에 한 명씩 '성, 이름' 순서로 적어 주세요.">
         <textarea className={`${inputCls} h-28 resize-y`} value={f.authors} onChange={set('authors')} placeholder={'Jo, Young Jae\nShin, Jae-Ho'} />
+      </Field>
+      <Field label="분야">
+        <select className={inputCls} value={f.field} onChange={set('field')}>
+          <option value="" disabled>분야 선택</option>
+          {FIELDS.map((field) => <option key={field} value={field}>{FIELD_LABELS[field]}</option>)}
+        </select>
       </Field>
       <div className="grid grid-cols-[100px_1fr] gap-3">
         <Field label="연도">

@@ -3,6 +3,7 @@ import { PdfHighlighter, PdfLoader, type Highlight, type PdfHighlighterUtils, ty
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { Minus, Plus } from 'lucide-react';
 import type { PDFViewer } from 'pdfjs-dist/types/web/pdf_viewer';
+import { PAREN_CITATION_FIELDS, resolveField } from '../../shared/fields';
 import { chipCls, iconBtnCls } from '../components/Dialog';
 import { usePaper } from '../state/paper';
 import { useSyncHover } from '../state/syncHover';
@@ -73,7 +74,7 @@ function textSpanAt(e: React.MouseEvent): HTMLElement | null {
 }
 
 /** Citation under a plain click on the PDF text layer (plan step 10 "Click handling"). */
-function citationAtClick(e: React.MouseEvent): CiteHit | null {
+function citationAtClick(e: React.MouseEvent, parens: boolean): CiteHit | null {
   const span = textSpanAt(e);
   if (!span) return null;
   const prev = siblingSpan(span, 'prev');
@@ -81,12 +82,15 @@ function citationAtClick(e: React.MouseEvent): CiteHit | null {
   const prevText = prev?.textContent ?? '';
   const offset = caretOffsetIn(span, e.clientX, e.clientY);
   if (offset !== null) {
-    const hit = detectCitation(prevText + (span.textContent ?? '') + (next?.textContent ?? ''), prevText.length + offset);
+    const hit = detectCitation(prevText + (span.textContent ?? '') + (next?.textContent ?? ''), prevText.length + offset, { parens });
     if (hit) return hit;
   }
-  if (prev && span.getBoundingClientRect().height < 0.8 * prev.getBoundingClientRect().height) {
-    const keys = detectBareNumber(span.textContent ?? '');
-    if (keys) return { kind: 'numeric', keys };
+  if (prev) {
+    const r = span.getBoundingClientRect(), p = prev.getBoundingClientRect();
+    if (r.height < 0.8 * p.height && r.bottom < p.bottom - 0.15 * p.height) {
+      const keys = detectBareNumber(span.textContent ?? '');
+      if (keys) return { kind: 'numeric', keys };
+    }
   }
   return null;
 }
@@ -185,7 +189,7 @@ export function PdfPane() {
   const onPaneClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (areaMode || !window.getSelection()?.isCollapsed) return;
     if (e.target instanceof Element && e.target.closest('.PdfHighlighter__tip-container')) return;
-    const hit = citationAtClick(e);
+    const hit = citationAtClick(e, PAREN_CITATION_FIELDS.has(resolveField(paper.field, paper.fieldSuggested)));
     if (!hit) return;
     e.preventDefault();
     e.stopPropagation();

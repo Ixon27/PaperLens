@@ -1,6 +1,7 @@
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { nanoid } from 'nanoid';
+import type { FieldId } from '../../shared/fields';
 import { PATHS } from '../config';
 import { db, getBlocks, getPaper, now, refreshFts, tx, type Author } from '../db';
 import { HttpError } from '../http-error';
@@ -16,6 +17,9 @@ import * as unpaywall from '../services/unpaywall';
 export type ImportInput = { kind: 'doi'; doi: string } | { kind: 'arxiv'; id: string };
 
 const DOI_RE = /10\.\d{4,9}\/[^\s"<>]+/i;
+const ARXIV_DOI = /10\.48550\/arxiv\.(\d{4}\.\d{4,5}|[a-z][a-z-]*(?:\.[A-Za-z]{2})?\/\d{7})/i;
+const ARXIV_ID = /(?:arxiv\.org\/(?:abs|pdf)\/|arxiv:\s*)?(\d{4}\.\d{4,5}|[a-z][a-z-]*(?:\.[A-Za-z]{2})?\/\d{7})(?:v\d+)?/i;
+const ARXIV_IN_TEXT = /arXiv:\s*(\d{4}\.\d{4,5}|[a-z][a-z-]*(?:\.[A-Za-z]{2})?\/\d{7})(?:v\d+)?/i;
 
 export function normalizeDoi(raw: string): string {
   return raw.replace(/[.,;)]+$/, '').toLowerCase();
@@ -33,11 +37,19 @@ export function parseImportInput(s: string): ImportInput {
   } catch {
     throw new HttpError(400, 'DOI나 arXiv 링크가 아닙니다');
   }
+  const arxivDoi = ARXIV_DOI.exec(input);
+  if (arxivDoi) return { kind: 'arxiv', id: arxivDoi[1] };
   const doi = findDoi(input);
   if (doi) return { kind: 'doi', doi };
-  const ax = /(?:arxiv\.org\/(?:abs|pdf)\/)?(\d{4}\.\d{4,5})(v\d+)?/i.exec(input);
+  const ax = ARXIV_ID.exec(input);
   if (ax) return { kind: 'arxiv', id: ax[1] };
   throw new HttpError(400, 'DOI나 arXiv 링크가 아닙니다');
+}
+
+export function arxivYear(id: string): number {
+  const oldStyle = id.includes('/');
+  const yy = parseInt(oldStyle ? id.slice(id.indexOf('/') + 1, id.indexOf('/') + 3) : id.slice(0, 2), 10);
+  return oldStyle && yy >= 91 ? 1900 + yy : 2000 + yy;
 }
 
 export function paperIdByDoi(doi: string): string | null {
@@ -59,14 +71,15 @@ interface NewPaper {
   pmid?: string | null;
   pmcid?: string | null;
   abstract?: string | null;
+  field?: FieldId | null;
 }
 
 function insertPaper(p: NewPaper): string {
   const id = nanoid(10);
   const t = now();
   db.prepare(
-    `INSERT INTO papers(id,title,authors,year,journal,volume,issue,pages,doi,arxiv_id,openalex_id,pmid,pmcid,abstract,created_at,updated_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO papers(id,title,authors,year,journal,volume,issue,pages,doi,arxiv_id,openalex_id,pmid,pmcid,abstract,field,created_at,updated_at)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     id,
     p.title,
@@ -82,6 +95,7 @@ function insertPaper(p: NewPaper): string {
     p.pmid ?? null,
     p.pmcid ?? null,
     p.abstract ?? null,
+    p.field ?? null,
     t,
     t,
   );
@@ -195,15 +209,16 @@ async function downloadPdf(url: string): Promise<Buffer | null> {
   }
 }
 
-/** Fill metadata from Crossref + OpenAlex for a DOI (null when Crossref has no record). */
-async function metadataForDoi(doi: string): Promise<{ meta: NewPaper; oaPdf: string | null } | null> {
-  const [cr, oa] = await Promise.all([crossref.getWork(doi), openalex.getByDoi(doi).catch(() => null)]);
-  if (!cr) return null;
+/** Fill metadata from Crossref and OpenAlex, accepting either source on its own. */
+async function metadataForDoi(doi: string): Promise<{ meta: NewPaper; pdfUrls: string[] } | null> {
+  const [cr, oa] = await Promise.all([crossref.getWork(doi).catch(() => null), openalex.getByDoi(doi).catch(() => null)]);
   const s = oa ? openalex.toSummary(oa) : null;
-  return {
-    meta: { ...cr, doi, openalex_id: s?.openalexId ?? null, pmid: s?.pmid ?? null, pmcid: s?.pmcid ?? null, abstract: cr.abstract ?? s?.abstract ?? null },
-    oaPdf: s?.oaPdf ?? null,
-  };
+  if (!cr && !s?.title) return null;
+  const meta: NewPaper = cr
+    ? { ...cr, doi, openalex_id: s?.openalexId ?? null, pmid: s?.pmid ?? null, pmcid: s?.pmcid ?? null, abstract: cr.abstract ?? s?.abstract ?? null }
+    : { title: s!.title, authors: s!.authors.map(splitName), year: s!.year, journal: s!.venue, abstract: s!.abstract, doi, openalex_id: s!.openalexId, pmid: s!.pmid, pmcid: s!.pmcid };
+  const pdfUrls = [...new Set([oa?.best_oa_location?.pdf_url, ...(oa?.locations ?? []).map((location) => location.pdf_url)].filter((url): url is string => !!url))];
+  return { meta, pdfUrls };
 }
 
 export interface ImportResult {
@@ -213,7 +228,7 @@ export interface ImportResult {
 }
 
 /** DOI / arXiv import: metadata synchronously (so the paper exists for navigation), PDF in a job. */
-export async function importFromInput(raw: string): Promise<ImportResult> {
+export async function importFromInput(raw: string, field: FieldId | null): Promise<ImportResult> {
   const input = parseImportInput(raw);
   const doi = input.kind === 'doi' ? input.doi : `10.48550/arxiv.${input.id}`.toLowerCase();
   const existing = paperIdByDoi(doi);
@@ -221,15 +236,15 @@ export async function importFromInput(raw: string): Promise<ImportResult> {
 
   if (input.kind === 'doi') {
     const found = await metadataForDoi(doi);
-    if (!found) throw new HttpError(404, 'Crossref에서 DOI를 찾지 못했습니다');
+    if (!found) throw new HttpError(404, 'Crossref·OpenAlex에서 DOI를 찾지 못했습니다');
     const duplicate = paperIdByDoi(doi); // another request may have imported it during the metadata fetch
     if (duplicate) return { paperId: duplicate, duplicate: true };
-    const paperId = insertPaper(found.meta);
+    const paperId = insertPaper({ ...found.meta, field });
     const pmcid = found.meta.pmcid;
     const jobId = startJob(paperId, 'import', async (ctx) => {
       ctx.progress(0.1, 'PDF 찾는 중');
       const candidates: (() => Promise<string | null>)[] = [
-        async () => found.oaPdf,
+        ...found.pdfUrls.map((url) => async () => url),
         () => unpaywall.oaPdf(doi).catch(() => null),
         async () => (pmcid ? `https://europepmc.org/articles/${pmcid}?pdf=render` : null),
       ];
@@ -259,7 +274,7 @@ export async function importFromInput(raw: string): Promise<ImportResult> {
     meta = {
       title: s.title,
       authors: s.authors.map(splitName),
-      year: 2000 + parseInt(id.slice(0, 2), 10),
+      year: arxivYear(id),
       journal: 'arXiv',
       abstract: s.abstract,
       openalex_id: s.openalexId,
@@ -267,11 +282,11 @@ export async function importFromInput(raw: string): Promise<ImportResult> {
   } else {
     const ax = await arxiv.getById(id);
     if (!ax) throw new HttpError(404, 'arXiv에서 논문을 찾지 못했습니다');
-    meta = { ...ax };
+    meta = { ...ax, year: arxivYear(id) };
   }
   const duplicate = paperIdByDoi(doi);
   if (duplicate) return { paperId: duplicate, duplicate: true };
-  const paperId = insertPaper({ ...meta, doi, arxiv_id: id });
+  const paperId = insertPaper({ ...meta, doi, arxiv_id: id, field });
   const jobId = startJob(paperId, 'import', async (ctx) => {
     ctx.progress(0.2, 'PDF 내려받는 중');
     const buf = await downloadPdf(`https://arxiv.org/pdf/${id}`);
@@ -282,14 +297,17 @@ export async function importFromInput(raw: string): Promise<ImportResult> {
   return { paperId, jobId };
 }
 
-/** One uploaded PDF: detect DOI on pages 1–2 (duplicate check), create the paper, extract in a job. */
-export async function importUpload(fileName: string, data: Buffer): Promise<ImportResult & { name: string }> {
+/** One uploaded PDF: detect DOI or arXiv ID on pages 1–2, then extract in a job. */
+export async function importUpload(fileName: string, data: Buffer, field: FieldId | null): Promise<ImportResult & { name: string }> {
   if (data.subarray(0, 4).toString('latin1') !== '%PDF') throw new HttpError(400, `PDF 파일이 아닙니다: ${fileName}`);
   const tmp = join(PATHS.tmp, `upload-${nanoid()}.pdf`);
   writeFileSync(tmp, data);
   try {
     const extracted = await extractBlocks(tmp);
-    const doi = findDoi(extracted.blocks.filter((block) => block.page <= 2).map((block) => block.text).join('\n'));
+    const text = extracted.blocks.filter((block) => block.page <= 2).map((block) => block.text).join('\n');
+    const detectedDoi = findDoi(text);
+    const arxivId = detectedDoi ? null : ARXIV_IN_TEXT.exec(text)?.[1] ?? null;
+    const doi = detectedDoi ?? (arxivId ? `10.48550/arxiv.${arxivId}`.toLowerCase() : null);
     const title = extracted.title ?? fileName.replace(/\.pdf$/i, '');
     const dup = doi ? paperIdByDoi(doi) : null;
     if (dup) {
@@ -297,14 +315,14 @@ export async function importUpload(fileName: string, data: Buffer): Promise<Impo
       return { name: fileName, paperId: dup, duplicate: true };
     }
     // Reserve the DOI before the asynchronous enrichment job starts, so overlapping uploads dedupe.
-    const paperId = insertPaper({ title, doi });
+    const paperId = insertPaper({ title, doi, arxiv_id: arxivId, field });
     renameSync(tmp, pdfPath(paperId));
     const jobId = startJob(paperId, 'import', async (ctx) => {
       if (doi) {
         ctx.progress(0.2, '메타데이터 찾는 중');
         const found = await metadataForDoi(doi).catch(() => null);
-        if (found && paperIdByDoi(doi) === paperId) {
-          const m = found.meta;
+        const m: NewPaper | null = found?.meta ?? (arxivId ? await arxiv.getById(arxivId).catch(() => null) : null);
+        if (m && paperIdByDoi(doi) === paperId) {
           db.prepare(
             `UPDATE papers SET title=?, authors=?, year=?, journal=?, volume=?, issue=?, pages=?, doi=?, openalex_id=?, pmid=?, pmcid=?, abstract=?, updated_at=? WHERE id=?`,
           ).run(m.title, JSON.stringify(m.authors ?? []), m.year ?? null, m.journal ?? null, m.volume ?? null, m.issue ?? null, m.pages ?? null, doi, m.openalex_id ?? null, m.pmid ?? null, m.pmcid ?? null, m.abstract ?? null, now(), paperId);

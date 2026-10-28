@@ -122,7 +122,7 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
                 id="settings-reader"
                 className={`${inputCls} resize-y`}
                 rows={4}
-                placeholder="예: 미생물학 대학원생. 장내 마이크로바이옴을 연구하고, 통계 방법론은 익숙하지 않음."
+                placeholder="예: 응집물질물리 대학원생. 2차원 소재의 전자 구조를 연구하고, 통계 방법론은 익숙하지 않음."
                 value={s.readerContext}
                 onChange={(e) => setS({ ...s, readerContext: e.target.value })}
               />

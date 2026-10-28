@@ -1,8 +1,10 @@
 import { nanoid } from 'nanoid';
-import { anchorId, type ExplainAnchor } from '../../shared/explain';
+import { anchorId, captionKindName, type ExplainAnchor } from '../../shared/explain';
+import { FIELD_LABELS, resolveField } from '../../shared/fields';
 import { validateFigureSpec, type FigureKind, type FigureSpec } from '../../shared/figure-spec';
 import { figureMentions, resolveAnchor } from '../anchors';
 import { db, getPaper, now } from '../db';
+import { fieldPrompt } from '../fields';
 import { imagePath, removeImage, saveDataUrlPng } from '../images';
 import { startJob } from '../jobs';
 import { parseJsonLoose } from '../json';
@@ -23,10 +25,13 @@ export function startFigure(paperId: string, anchor: ExplainAnchor, imageDataUrl
       const r = resolveAnchor(paperId, anchor);
       const settings = getSettings();
       const by = resolveModel('heavy', settings);
+      const field = resolveField(paper.field, paper.field_suggested);
       const prompt = fill(loadPrompt('figures').PROMPT, {
         title: paper.title,
         context: settings.readerContext,
-        kind_name: anchor.type === 'table' ? '표' : '그림',
+        field_label: FIELD_LABELS[field],
+        field_figures: fieldPrompt(field, 'FIGURES'),
+        kind_name: captionKindName(r.label!),
         label: r.label!,
         page: anchor.page,
         caption: r.block.text.slice(0, 1500),

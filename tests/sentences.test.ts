@@ -22,6 +22,14 @@ describe('splitSentences', () => {
     expect(sentences('The total was 12. Next came more.')).toEqual(['The total was 12.', 'Next came more.']);
   });
 
+  it('keeps technical abbreviations within a sentence', () => {
+    expect(sentences('See Sec. 3 and Thm. 2.1 for details.')).toEqual(['See Sec. 3 and Thm. 2.1 for details.']);
+  });
+
+  it('ends a sentence after a numeric measurement in kelvin', () => {
+    expect(sentences('It was measured at 300 K. The gap closed.')).toEqual(['It was measured at 300 K.', 'The gap closed.']);
+  });
+
   it.each([
     ['Cells were incubated for 30 min.', 'After incubation, cells were washed.'],
     ['Samples were held at 37 ◦C.', 'Cell viability was measured.'],

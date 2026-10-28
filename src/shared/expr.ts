@@ -12,6 +12,27 @@ export type Expr =
   | { type: 'binary'; op: '+' | '-' | '*' | '/' | '^'; left: Expr; right: Expr }
   | { type: 'call'; name: string; args: Expr[] };
 
+function erf(x: number): number {
+  const t = 1 / (1 + 0.3275911 * Math.abs(x));
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t) * Math.exp(-x * x);
+  return x < 0 ? -y : y;
+}
+
+const lanczos = [
+  0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+  771.32342877765313, -176.61502916214059, 12.507343278686905,
+  -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+];
+
+function gamma(x: number): number {
+  if (x < 0.5) return Math.PI / (Math.sin(Math.PI * x) * gamma(1 - x));
+  const z = x - 1;
+  let sum = lanczos[0];
+  for (let i = 1; i < lanczos.length; i++) sum += lanczos[i] / (z + i);
+  const t = z + 7.5;
+  return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * sum;
+}
+
 const functions: Record<string, { min: number; max: number; fn: (...args: number[]) => number }> = {
   exp: { min: 1, max: 1, fn: Math.exp },
   ln: { min: 1, max: 1, fn: Math.log },
@@ -24,6 +45,28 @@ const functions: Record<string, { min: number; max: number; fn: (...args: number
   cos: { min: 1, max: 1, fn: Math.cos },
   tan: { min: 1, max: 1, fn: Math.tan },
   tanh: { min: 1, max: 1, fn: Math.tanh },
+  asin: { min: 1, max: 1, fn: Math.asin },
+  acos: { min: 1, max: 1, fn: Math.acos },
+  atan: { min: 1, max: 1, fn: Math.atan },
+  sinh: { min: 1, max: 1, fn: Math.sinh },
+  cosh: { min: 1, max: 1, fn: Math.cosh },
+  asinh: { min: 1, max: 1, fn: Math.asinh },
+  acosh: { min: 1, max: 1, fn: Math.acosh },
+  atanh: { min: 1, max: 1, fn: Math.atanh },
+  floor: { min: 1, max: 1, fn: Math.floor },
+  ceil: { min: 1, max: 1, fn: Math.ceil },
+  round: { min: 1, max: 1, fn: Math.round },
+  sign: { min: 1, max: 1, fn: Math.sign },
+  trunc: { min: 1, max: 1, fn: Math.trunc },
+  cbrt: { min: 1, max: 1, fn: Math.cbrt },
+  atan2: { min: 2, max: 2, fn: Math.atan2 },
+  hypot: { min: 1, max: Infinity, fn: Math.hypot },
+  mod: { min: 2, max: 2, fn: (a, b) => ((a % b) + b) % b },
+  erf: { min: 1, max: 1, fn: erf },
+  erfc: { min: 1, max: 1, fn: (x) => 1 - erf(x) },
+  gamma: { min: 1, max: 1, fn: gamma },
+  sigmoid: { min: 1, max: 1, fn: (x) => 1 / (1 + Math.exp(-x)) },
+  step: { min: 1, max: 1, fn: (x) => x < 0 ? 0 : 1 },
   min: { min: 1, max: Infinity, fn: Math.min },
   max: { min: 1, max: Infinity, fn: Math.max },
   pow: { min: 2, max: 2, fn: Math.pow },
@@ -35,8 +78,8 @@ export function parseExpr(src: string): Expr {
   const space = () => { while (/\s/.test(src[pos] ?? '') && pos < src.length) pos++; };
   const take = (s: string) => {
     space();
-    if (src[pos] !== s) return false;
-    pos++;
+    if (!src.startsWith(s, pos)) return false;
+    pos += s.length;
     return true;
   };
   const depthCheck = (depth: number) => {
@@ -79,7 +122,7 @@ export function parseExpr(src: string): Expr {
   function power(depth: number): Expr {
     depthCheck(depth);
     const left = primary(depth);
-    return take('^') ? { type: 'binary', op: '^', left, right: unary(depth + 1) } : left;
+    return take('^') || take('**') ? { type: 'binary', op: '^', left, right: unary(depth + 1) } : left;
   }
   function unary(depth: number): Expr {
     depthCheck(depth);

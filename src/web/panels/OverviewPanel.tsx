@@ -229,11 +229,12 @@ function KeywordsSection({ open, onOpenChange }: { open: boolean; onOpenChange(o
 
   // The first time a paper without AI-picked terms shows here, pick them.
   useEffect(() => {
+    if (paper.field === null) return;
     if (terms === null || terms.some((t) => t.source === 'auto') || !kw.loaded || kw.running || kw.job?.status === 'error') return;
     if (autoKeywordsStarted.has(paper.id)) return;
     autoKeywordsStarted.add(paper.id);
     void start();
-  }, [terms, kw.loaded, kw.running, kw.job?.status, paper.id, start]);
+  }, [terms, kw.loaded, kw.running, kw.job?.status, paper.id, paper.field, start]);
 
   // 키워드 사전에서 보기 (TermCard).
   useEffect(() => {
@@ -328,7 +329,9 @@ function KeywordsSection({ open, onOpenChange }: { open: boolean; onOpenChange(o
         </div>
       )}
       {terms !== null && !terms.length && !kw.running && (
-        <p className="text-[12.5px] leading-relaxed text-fg-muted">PDF나 번역에서 용어를 드래그한 뒤 '용어'를 누르면 여기에 모입니다.</p>
+        <p className="text-[12.5px] leading-relaxed text-fg-muted">
+          {paper.field === null ? '분야를 확인하면 핵심 용어를 자동으로 만듭니다.' : "PDF나 번역에서 용어를 드래그한 뒤 '용어'를 누르면 여기에 모입니다."}
+        </p>
       )}
       {!!terms?.length && (
         <Clamp maxPx={88}>
@@ -435,10 +438,11 @@ function SummarySections({ open, setOpen }: { open: OpenState; setOpen(id: Secti
 
   // The first time this panel shows a paper without a summary, make one.
   useEffect(() => {
+    if (paper.field === null) return;
     if (artifact !== null || !h.loaded || h.running || h.job?.status === 'error' || autoSummaryStarted.has(paper.id)) return;
     autoSummaryStarted.add(paper.id);
     void start();
-  }, [artifact, h.loaded, h.running, h.job?.status, paper.id, start]);
+  }, [artifact, h.loaded, h.running, h.job?.status, paper.id, paper.field, start]);
 
   const source = h.running ? h.text : (artifact?.content ?? '');
   const { tldr, rest } = useMemo(() => splitSummary(source), [source]);
@@ -475,6 +479,13 @@ function SummarySections({ open, setOpen }: { open: OpenState; setOpen(id: Secti
           <button className={smallBtnCls} onClick={() => void start()}>
             요약 만들기
           </button>
+        </div>
+      );
+    } else if (paper.field === null && artifact === null) {
+      status = (
+        <div className="flex items-center gap-2 text-[13px] text-fg-muted">
+          <span className="min-w-0 flex-1">분야를 확인하면 요약을 자동으로 만듭니다.</span>
+          <button className={smallBtnCls} onClick={() => void start()}>지금 만들기</button>
         </div>
       );
     } else if (artifact === null) {

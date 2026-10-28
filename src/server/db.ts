@@ -11,7 +11,7 @@ PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS papers(id TEXT PRIMARY KEY, title TEXT NOT NULL, authors TEXT NOT NULL DEFAULT '[]',
   year INTEGER, journal TEXT, volume TEXT, issue TEXT, pages TEXT, doi TEXT UNIQUE, arxiv_id TEXT,
   openalex_id TEXT, pmid TEXT, pmcid TEXT, abstract TEXT, pdf_file TEXT, page_count INTEGER,
-  research_types TEXT, layout_version INTEGER NOT NULL DEFAULT 0,
+  field TEXT, field_suggested TEXT, layout_version INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_opened_at TEXT);
 CREATE TABLE IF NOT EXISTS blocks(paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE, idx INTEGER NOT NULL,
   page INTEGER NOT NULL, text TEXT NOT NULL, lines TEXT NOT NULL,
@@ -59,6 +59,38 @@ if (!columnsOf('terms').has('source')) db.exec("ALTER TABLE terms ADD COLUMN sou
   if (!tr.has('made_by')) db.exec('ALTER TABLE translations ADD COLUMN made_by TEXT');
 }
 
+export function migratePaperFields(d: DatabaseSync): void {
+  const columns = new Set((d.prepare('PRAGMA table_info(papers)').all() as { name: string }[]).map((c) => c.name));
+  if (!columns.has('field')) d.exec('ALTER TABLE papers ADD COLUMN field TEXT');
+  if (!columns.has('field_suggested')) d.exec('ALTER TABLE papers ADD COLUMN field_suggested TEXT');
+  if (!columns.has('research_types')) return;
+
+  const rows = d.prepare('SELECT id, research_types FROM papers WHERE research_types IS NOT NULL AND field IS NULL').all() as {
+    id: string;
+    research_types: string;
+  }[];
+  const update = d.prepare('UPDATE papers SET field=? WHERE id=?');
+  for (const row of rows) {
+    let types: unknown;
+    try {
+      types = JSON.parse(row.research_types);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(types) || !types.every((type) => typeof type === 'string')) continue;
+    for (const type of types) {
+      const field = type === 'clinical' ? 'medicine' : type === 'wetlab' || type === 'omics' ? 'life' : null;
+      if (field) {
+        update.run(field, row.id);
+        break;
+      }
+    }
+  }
+  d.exec('ALTER TABLE papers DROP COLUMN research_types');
+}
+
+migratePaperFields(db);
+
 db.prepare(`UPDATE jobs SET status='error', error='서버 재시작으로 중단', updated_at=? WHERE status IN ('queued','running')`).run(
   new Date().toISOString(),
 );
@@ -95,7 +127,8 @@ export interface PaperRow {
   abstract: string | null;
   pdf_file: string | null;
   page_count: number | null;
-  research_types: string | null;
+  field: string | null;
+  field_suggested: string | null;
   /** Block layout the paper's blocks were made with; see LAYOUT_VERSION. */
   layout_version: number;
   created_at: string;

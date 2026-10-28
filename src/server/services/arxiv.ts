@@ -6,7 +6,7 @@ const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
 
 /** Metadata from the arXiv Atom API, split author names into family/given. */
 export async function getById(id: string): Promise<WorkMeta | null> {
-  const xml = await getText(`http://export.arxiv.org/api/query?id_list=${encodeURIComponent(id)}`);
+  const xml = await getText(`http://export.arxiv.org/api/query?id_list=${id.replace(/[^\w./-]/g, '')}`);
   const entry = xml && tag(xml, 'entry');
   if (!entry) return null;
   const title = tag(entry, 'title');

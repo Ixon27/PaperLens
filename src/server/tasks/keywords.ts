@@ -2,8 +2,8 @@ import { getPaper } from '../db';
 import { startJob } from '../jobs';
 import { parseJsonLoose } from '../json';
 import { resolveModel, runLlm } from '../llm';
-import { abstractOrPageOne, paperSystem } from '../pdf/context';
-import { fill, loadPrompt } from '../prompts';
+import { paperSystem } from '../pdf/context';
+import { loadPrompt } from '../prompts';
 import { normalizeKeywords, replaceAutoKeywords, type KeywordEntry } from '../terms';
 
 const JSON_ONLY = '\n\n(설명 없이 JSON 배열 하나만 출력하라.)';
@@ -17,7 +17,7 @@ export function startKeywords(paperId: string): string {
     if (!paper) throw new Error('논문을 찾을 수 없습니다');
     const P = loadPrompt('terms');
     const by = resolveModel('quick');
-    const system = fill(P.SYSTEM, { title: paper.title, abstract: abstractOrPageOne(paper) }) + '\n\n' + paperSystem(paper, { includeRefs: false });
+    const system = paperSystem(paper, { includeRefs: false });
 
     ctx.progress(0.05, '핵심 용어 고르는 중…');
     let entries: KeywordEntry[] = [];

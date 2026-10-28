@@ -1,6 +1,8 @@
+import { resolveField } from '../../shared/fields';
 import { Hono } from 'hono';
 import { nanoid } from 'nanoid';
 import { db, getBlocks, now, type PaperRow } from '../db';
+import { fieldGuide } from '../fields';
 import { HttpError } from '../http-error';
 import { parseJsonLoose } from '../json';
 import { resolveModel, runLlm } from '../llm';
@@ -29,7 +31,11 @@ const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 
 async function explain(paper: PaperRow, term: string, key: string, page: number | null): Promise<TermDto> {
   const P = loadPrompt('terms');
-  const system = fill(P.SYSTEM, { title: paper.title, abstract: abstractOrPageOne(paper) });
+  const system = fill(P.SYSTEM, {
+    title: paper.title,
+    abstract: abstractOrPageOne(paper),
+    field_guide: fieldGuide(resolveField(paper.field, paper.field_suggested)),
+  });
   const prompt = fill(P.PROMPT, { term, surrounding: surroundingOf(paper.id, term, page) });
   const by = resolveModel('quick');
   let parsed: { ko: string; definition: string; inPaper: string } | null = null;

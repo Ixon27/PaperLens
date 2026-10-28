@@ -2,6 +2,8 @@ import { Hono } from 'hono';
 import { streamSSE, type SSEStreamingApi } from 'hono/streaming';
 import { nanoid } from 'nanoid';
 import { db, getBlocks, getPaper, madeByOf, now, type PaperRow } from '../db';
+import { fieldGuide } from '../fields';
+import { resolveField } from '../../shared/fields';
 import { figureMentions, resolveAnchor, type ResolvedAnchor } from '../anchors';
 import { HttpError } from '../http-error';
 import { imagePath, imageUrl, removeImage, saveDataUrlPng } from '../images';
@@ -9,7 +11,7 @@ import { resolveModel, runLlm, validateModelSpec, type ModelSpec } from '../llm'
 import { abstractOrPageOne, paperSystem } from '../pdf/context';
 import { fill, loadPrompt } from '../prompts';
 import { getSettings } from '../settings';
-import { anchorId, parseAnchor, type ExplainAnchor } from '../../shared/explain';
+import { anchorId, captionKindName, parseAnchor, type ExplainAnchor } from '../../shared/explain';
 
 export const threads = new Hono();
 
@@ -118,7 +120,7 @@ function cardPrompt(P: Record<string, string>, a: ExplainAnchor, r: ResolvedAnch
   const label = r.label!;
   return fill(P.CARD_FIGURE, {
     page: a.page,
-    kind: a.type === 'table' ? '표' : '그림',
+    kind: captionKindName(r.label!),
     label,
     caption: r.block.text.slice(0, 1500),
     mentions: figureMentions(r, 3),
@@ -323,7 +325,7 @@ threads.post('/papers/:id/translate-selection', async (c) => {
     stream.onAbort(() => ac.abort());
     try {
       const P = loadPrompt('translate');
-      const system = fill(P.SYSTEM, { title: paper.title, abstract: abstractOrPageOne(paper) });
+      const system = fill(P.SYSTEM, { title: paper.title, abstract: abstractOrPageOne(paper), field_guide: fieldGuide(resolveField(paper.field, paper.field_suggested)) });
       const prompt = fill(P.SELECTION, { text, surrounding });
       const by = resolveModel('quick');
       const result = await runLlm({ system, prompt, profile: 'quick', model: by, signal: ac.signal, onDelta: (t) => out.send('delta', { text: t }) });

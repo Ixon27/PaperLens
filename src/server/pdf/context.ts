@@ -1,4 +1,6 @@
 import { getBlocks, type BlockRow, type PaperRow } from '../db';
+import { fieldGuide } from '../fields';
+import { resolveField } from '../../shared/fields';
 
 const CONTEXT_CAP = 350_000;
 
@@ -24,9 +26,10 @@ export function paperContext(paperId: string, { includeRefs = true }: { includeR
 const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
 /** System prompt that grounds the model in the paper body. */
-export function paperSystem(paper: Pick<PaperRow, 'id' | 'title'>, opts?: { includeRefs?: boolean }): string {
+export function paperSystem(paper: Pick<PaperRow, 'id' | 'title' | 'field' | 'field_suggested'>, opts?: { includeRefs?: boolean }): string {
   return (
-    '너는 연구 논문을 같이 읽는 조교다. 아래 <paper> 본문만 근거로 쓴다. 페이지는 본문 속 [p.N] 표시를 따른다.\n' +
+    '너는 연구 논문을 같이 읽는 조교다. 아래 <paper> 본문만 근거로 쓴다. 페이지는 본문 속 [p.N] 표시를 따른다. 용어·표기·결과 해석은 <field> 지침을 따른다.\n' +
+    `<field>\n${fieldGuide(resolveField(paper.field, paper.field_suggested))}\n</field>\n` +
     `<paper title="${escapeAttr(paper.title)}">\n${paperContext(paper.id, opts)}\n</paper>`
   );
 }

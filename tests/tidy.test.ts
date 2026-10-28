@@ -14,6 +14,10 @@ describe('tidyForVault', () => {
   it('removes numeric citations but keeps [p.N]', () => {
     expect(tidyForVault('결과다 [12]. 근거 [p.3]')).toBe('결과다. 근거 [p.3]');
   });
+  it('preserves numeric intervals in inline math and citations in inline code', () => {
+    expect(tidyForVault('구간 $x \\in [0,1]$ 결과다 [12].')).toBe('구간 $x \\in [0,1]$ 결과다.');
+    expect(tidyForVault('코드 `[12]` 결과다 [13].')).toBe('코드 `[12]` 결과다.');
+  });
   it('leaves $$ blocks and fences untouched', () => {
     const md = '본문 ,끝\n$$\na ,b [3]\n$$\n```\nx ,y\n```';
     expect(tidyForVault(md)).toBe('본문,끝\n$$\na ,b [3]\n$$\n```\nx ,y\n```');

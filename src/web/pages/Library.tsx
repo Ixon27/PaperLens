@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { ArrowUp, FileUp, Loader2, Search, Trash2 } from 'lucide-react';
+import { FIELDS, FIELD_LABELS, isFieldId, type FieldId } from '../../shared/fields';
 import { api } from '../api';
 import { JobBar } from '../components/JobBar';
 import { LiquidDrop } from '../components/LiquidDrop';
@@ -23,9 +24,10 @@ export function authorShort(p: Pick<PaperDto, 'authors'>): string {
 }
 
 /** Upload PDFs; returns per-file results. */
-export async function uploadPdfs(files: File[]): Promise<UploadResult[]> {
+export async function uploadPdfs(files: File[], field: FieldId | null): Promise<UploadResult[]> {
   const fd = new FormData();
   for (const f of files) fd.append('file', f);
+  if (field) fd.append('field', field);
   return api<UploadResult[]>('/api/papers/upload', { method: 'POST', body: fd });
 }
 
@@ -36,6 +38,10 @@ export function Library() {
   const [q, setQ] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
   const [input, setInput] = useState('');
+  const [importField, setImportField] = useState<FieldId | 'auto'>(() => {
+    const stored = localStorage.getItem('pr.importField');
+    return isFieldId(stored) ? stored : 'auto';
+  });
   const [importing, setImporting] = useState(false);
   const [drop, setDrop] = useState<'idle' | 'over' | 'dropping'>('idle');
   const [dropAt, setDropAt] = useState<{ x: number; y: number; key: number } | null>(null);
@@ -80,7 +86,7 @@ export function Library() {
     if (!input.trim() || importing) return;
     setImporting(true);
     try {
-      const r = await api<ImportResult>('/api/papers/import', { method: 'POST', json: { input } });
+      const r = await api<ImportResult>('/api/papers/import', { method: 'POST', json: { input, field: importField === 'auto' ? null : importField } });
       if (r.duplicate) toast('이미 라이브러리에 있습니다');
       setInput('');
       navigate(`/paper/${r.paperId}`);
@@ -99,7 +105,7 @@ export function Library() {
         return;
       }
       try {
-        const results = await uploadPdfs(pdfs);
+        const results = await uploadPdfs(pdfs, importField === 'auto' ? null : importField);
         for (const r of results) {
           if (r.error) toast(`${r.name}: ${r.error}`, { tone: 'error' });
           else if (r.duplicate) toast(`이미 라이브러리에 있습니다: ${r.name}`);
@@ -111,7 +117,7 @@ export function Library() {
         toast((e as Error).message, { tone: 'error' });
       }
     },
-    [load, navigate, toast],
+    [importField, load, navigate, toast],
   );
 
   // Window-wide drag & drop overlay.
@@ -186,13 +192,29 @@ export function Library() {
             }}
           />
           <div className="mt-2 flex items-center justify-between">
-            <button
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line px-3 text-[12.5px] text-fg-muted transition-[background-color,color,transform] duration-150 hover:bg-hover hover:text-fg active:scale-[0.97]"
-              onClick={() => fileRef.current?.click()}
-            >
-              <FileUp size={14} />
-              PDF 선택
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line px-3 text-[12.5px] text-fg-muted transition-[background-color,color,transform] duration-150 hover:bg-hover hover:text-fg active:scale-[0.97]"
+                onClick={() => fileRef.current?.click()}
+              >
+                <FileUp size={14} />
+                PDF 선택
+              </button>
+              <select
+                aria-label="분야"
+                className="h-8 rounded-lg border border-line bg-surface px-2 text-[12.5px] text-fg"
+                value={importField}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  const field = isFieldId(value) ? value : 'auto';
+                  setImportField(field);
+                  localStorage.setItem('pr.importField', field);
+                }}
+              >
+                <option value="auto">분야 자동 판별</option>
+                {FIELDS.map((field) => <option key={field} value={field}>{FIELD_LABELS[field]}</option>)}
+              </select>
+            </div>
             <button
               className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-inverse text-inverse-fg transition-[opacity,transform] duration-150 hover:opacity-90 active:scale-[0.95] disabled:pointer-events-none disabled:opacity-30"
               aria-label="가져오기"
@@ -289,6 +311,7 @@ function PaperCard({ p, isNew, onDelete }: { p: PaperDto; isNew: boolean; onDele
           <div className="text-[14px] leading-snug font-medium text-fg">{p.title}</div>
           {meta && <div className="mt-0.5 truncate text-[12px] text-fg-muted">{meta}</div>}
           <div className="mt-1.5 flex flex-wrap gap-1.5 empty:hidden">
+            {p.field ? <Badge>{FIELD_LABELS[p.field]}</Badge> : <Badge tone="warning">분야 확인 필요</Badge>}
             {p.status.analysis && <Badge tone="success">분석</Badge>}
             {tr.done > 0 && (
               <Badge tone="accent">

@@ -1,4 +1,5 @@
 import { getJson } from './http';
+import { stripMarkup } from './crossref';
 
 const BASE = 'https://api.openalex.org';
 
@@ -12,6 +13,8 @@ export interface OpenAlexWork {
   abstract_inverted_index?: Record<string, number[]> | null;
   primary_location?: { source?: { display_name?: string } | null } | null;
   best_oa_location?: { pdf_url?: string | null } | null;
+  locations?: { pdf_url?: string | null }[];
+  primary_topic?: { id: string; display_name: string } | null;
   ids?: { pmid?: string; pmcid?: string };
   keywords?: { display_name: string }[];
   related_works?: string[];
@@ -35,6 +38,7 @@ export interface WorkSummary {
 }
 
 export const shortId = (id: string) => id.replace(/^https?:\/\/openalex\.org\//, '');
+export const titleKey = (title: string) => stripMarkup(title).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 
 function rebuildAbstract(inv: Record<string, number[]> | null | undefined): string | null {
   if (!inv) return null;
@@ -48,7 +52,7 @@ export function toSummary(w: OpenAlexWork): WorkSummary {
   return {
     openalexId: shortId(w.id),
     doi: w.doi ? w.doi.replace(/^https?:\/\/doi\.org\//i, '').toLowerCase() : null,
-    title: w.title ?? w.display_name ?? '',
+    title: stripMarkup(w.title ?? w.display_name ?? ''),
     year: w.publication_year ?? null,
     venue: w.primary_location?.source?.display_name ?? null,
     citedBy: w.cited_by_count ?? 0,
@@ -82,6 +86,22 @@ export async function getMany(ids: string[]): Promise<OpenAlexWork[]> {
 export async function search(title: string): Promise<OpenAlexWork | null> {
   const res = await getJson<{ results: OpenAlexWork[] }>(`${BASE}/works?search=${encodeURIComponent(title)}&per-page=1`);
   return res?.results?.[0] ?? null;
+}
+
+export async function findWork(p: { openalex_id: string | null; doi: string | null; title: string }): Promise<OpenAlexWork | null> {
+  const byId = p.openalex_id ? await getById(p.openalex_id).catch(() => null) : null;
+  if (byId) return byId;
+  const byDoi = p.doi ? await getByDoi(p.doi).catch(() => null) : null;
+  if (byDoi) return byDoi;
+  const found = await search(p.title).catch(() => null);
+  return found && titleKey(found.title ?? found.display_name ?? '') === titleKey(p.title) ? found : null;
+}
+
+export async function recentInTopic(topicId: string, excludeId: string): Promise<OpenAlexWork[]> {
+  const res = await getJson<{ results: OpenAlexWork[] }>(
+    `${BASE}/works?filter=primary_topic.id:${shortId(topicId)},from_publication_date:${new Date().getFullYear() - 2}-01-01&sort=publication_date:desc&per-page=11`,
+  );
+  return (res?.results ?? []).filter((work) => shortId(work.id) !== shortId(excludeId)).slice(0, 10);
 }
 
 export async function citing(wid: string, sort: string): Promise<OpenAlexWork[]> {

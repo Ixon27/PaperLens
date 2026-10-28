@@ -4,7 +4,8 @@ import { resolveModel, runLlm, type ModelSpec } from '../llm/index';
 import { paperSystem } from '../pdf/context';
 import { fill, loadPrompt } from '../prompts';
 import { getSettings } from '../settings';
-import type { ResearchType } from './classify';
+import { resolveField, type FieldId } from '../../shared/fields';
+import { fieldPrompt } from '../fields';
 
 export const RETRY_SUFFIX = '\n\n(다시. 설명하지 말고 위 #### 소제목을 글자 그대로 쓴 본문만 출력하라.)';
 const TEXT_THROTTLE_MS = 200;
@@ -24,7 +25,7 @@ const RENAMED: Record<string, string> = {
 const RETIRED_SUBHEADING = /^#{5,6}\s+공부 단어장\s*$/;
 
 export interface AnalysisMeta {
-  types: ResearchType[];
+  field: FieldId;
   callsDone: number;
   by: ModelSpec;
 }
@@ -81,7 +82,7 @@ export function orderSections(parts: string[]): string {
 }
 
 /** Start (or reuse) the structured analysis job (three calls at once); returns the job id. */
-export function startAnalysis(paperId: string, types: ResearchType[]): string {
+export function startAnalysis(paperId: string): string {
   return startJob(paperId, 'analysis', async (ctx) => {
     const paper = getPaper(paperId);
     if (!paper) throw new Error('논문을 찾을 수 없습니다');
@@ -89,8 +90,7 @@ export function startAnalysis(paperId: string, types: ResearchType[]): string {
     const by = resolveModel('heavy', settings);
 
     const P = loadPrompt('analysis');
-    const methods = types.map((t) => P['METHODS:' + t]).join('\n\n');
-    const results = types.length === 1 && types[0] === 'review' ? P['RESULTS:review'] : P['RESULTS:default'];
+    const field = resolveField(paper.field, paper.field_suggested);
     const head = fill(P.COMMON, { title: paper.title, context: settings.readerContext });
     const system = paperSystem(paper);
 
@@ -107,7 +107,12 @@ export function startAnalysis(paperId: string, types: ResearchType[]): string {
     };
 
     const runCall = async (j: number) => {
-      const prompt = head + '\n\n---\n\n' + fill(P['CALL ' + j], { methods, results });
+      const prompt = head + '\n\n---\n\n' + fill(P['CALL ' + j], {
+        methods: fieldPrompt(field, 'METHODS'),
+        results: P['RESULTS:default'],
+        review_methods: P['METHODS:review'],
+        review_results: P['RESULTS:review'],
+      });
       const call = async (p: string) => {
         parts[j - 1] = '';
         const onDelta = (t: string) => {
@@ -121,7 +126,7 @@ export function startAnalysis(paperId: string, types: ResearchType[]): string {
       parts[j - 1] = out.trim();
       completed[j - 1] = true;
       const done = completed.filter(Boolean).length;
-      const meta: AnalysisMeta = { types, callsDone: done, by };
+      const meta: AnalysisMeta = { field, callsDone: done, by };
       putArtifact(paperId, 'analysis', orderSections(parts.filter((_, i) => completed[i])), meta, by);
       // Codex has no deltas: the finished part is authoritative.
       scheduleText();

@@ -21,12 +21,12 @@ export interface AnchorBlock {
 
 export const ANCHOR_KEY_CHARS = 60;
 
-const CAPTION_LABEL = /^(fig(?:ure)?s?|table|scheme|chart)\.?\s*(S?(?:\d+|[IVX]+)[A-Za-z]?)\b/i;
+const CAPTION_LABEL = /^(fig(?:ure)?s?|table|scheme|chart|algorithm|listing|그림|표)\.?\s*((?:[A-Z]\.?)?\d+(?:\.\d+)*[A-Za-z]?|[IVX]+[A-Za-z]?)\b/iu;
 /** The number part, case-sensitive: "Figure in …" must not read as roman numeral "in". */
-const LABEL_NUMBER = /^S?(?:\d+|[IVX]+)[A-Za-z]?$/;
+const LABEL_NUMBER = /^(?:(?:[A-Z]\.?)?\d+(?:\.\d+)*[A-Za-z]?|[IVX]+[A-Za-z]?)$/u;
 /** Headed back matter (and stray front-matter labels): nothing in it to explain. */
 const BACK_MATTER_HEADING =
-  /^(?:\d+(?:\.\d+)*\.?\s*)?(?:references?(?: and notes)?|literature cited|bibliography|acknowledge?ments?|funding|authors?'? (?:contributions?|affiliations?|information|orcids?)|additional (?:files|information)|ethics(?: approval| statement)?|data availability|conflicts? of interest|competing interests?|supplementary (?:materials?|information)|abbreviations|correspondence)\b/i;
+  /^(?:\d+(?:\.\d+)*\.?\s*)?(?:references?(?: and notes)?|literature cited|bibliography|acknowledge?ments?|funding|authors?'? (?:contributions?|affiliations?|information|orcids?)|additional (?:files|information)|ethics(?: approval| statement)?|data availability|code availability|data and code availability|availability of data and materials|reproducibility statement|broader impacts?|declarations?|checklist|conflicts? of interest|competing interests?|supplementary (?:materials?|information)|abbreviations|correspondence)\b/i;
 
 /** `Fig. 2A. Growth…` → `{ figure, 'Figure 2A' }`; supplementary items and prose → null. */
 export function captionLabel(text: string): { type: 'figure' | 'table'; label: string } | null {
@@ -35,8 +35,16 @@ export function captionLabel(text: string): { type: 'figure' | 'table'; label: s
   const m = CAPTION_LABEL.exec(t);
   if (!m || !LABEL_NUMBER.test(m[2])) return null;
   const word = m[1].toLowerCase();
-  const name = word.startsWith('fig') ? 'Figure' : word === 'table' ? 'Table' : word === 'scheme' ? 'Scheme' : 'Chart';
-  return { type: name === 'Table' ? 'table' : 'figure', label: `${name} ${m[2]}` };
+  const name = word.startsWith('fig') ? 'Figure' : word === 'table' ? 'Table' : word === 'scheme' ? 'Scheme'
+    : word === 'chart' ? 'Chart' : word === 'algorithm' ? 'Algorithm' : word === 'listing' ? 'Listing' : word;
+  return { type: name === 'Table' || name === '표' ? 'table' : 'figure', label: `${name} ${m[2]}` };
+}
+
+export function captionKindName(label: string): string {
+  if (/^(?:Table|표)(?:\s|$)/i.test(label)) return '표';
+  if (/^Algorithm(?:\s|$)/i.test(label)) return '알고리즘';
+  if (/^Listing(?:\s|$)/i.test(label)) return '코드';
+  return '그림';
 }
 
 /** Body paragraphs under the heading at `at`, up to the next heading; captions and asides are skipped. */
@@ -91,7 +99,9 @@ export function mentionPattern(label: string): RegExp {
   const space = label.indexOf(' ');
   const word = label.slice(0, space);
   const n = escapeRe(label.slice(space + 1));
-  if (word === 'Table') return new RegExp(`\\bTables?\\s*${n}\\b`, 'i');
-  if (word === 'Figure') return new RegExp(`\\bFig(?:ure)?s?\\.?\\s*${n}\\b`, 'i');
-  return new RegExp(`\\b${word}s?\\s*${n}\\b`, 'i');
+  if (word === 'Table') return new RegExp(`\\bTables?\\s*${n}(?!\\.?\\d)`, 'i');
+  if (word === 'Figure') return new RegExp(`\\bFig(?:ure)?s?\\.?\\s*${n}(?!\\.?\\d)`, 'i');
+  if (word === 'Algorithm') return new RegExp(`\\bAlg(?:orithm)?s?\\.?\\s*${n}(?!\\.?\\d)`, 'i');
+  if (word === '그림' || word === '표') return new RegExp(`${word}\\s*${n}(?!\\.?\\d)`, 'i');
+  return new RegExp(`\\b${escapeRe(word)}s?\\s*${n}(?!\\.?\\d)`, 'i');
 }

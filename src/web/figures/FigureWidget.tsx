@@ -3,8 +3,8 @@ import { FIGURE_KIND_LABELS, type FigureSpec } from '../../shared/figure-spec';
 import { SourceChip } from '../components/SourceChip';
 import { CompareWidget, TableWidget } from './dataWidgets';
 import { HotspotWidget } from './HotspotWidget';
-import { LineWidget, BarWidget, ScatterWidget, StackedWidget, BoxWidget, HeatmapWidget } from './plotWidgets';
-import { VolcanoWidget, OrdinationWidget, SurvivalWidget, DoseResponseWidget, FormulaWidget } from './statWidgets';
+import { LineWidget, BarWidget, ScatterWidget, StackedWidget, BoxWidget, HeatmapWidget, HistogramWidget, FieldWidget } from './plotWidgets';
+import { VolcanoWidget, OrdinationWidget, SurvivalWidget, DoseResponseWidget, FormulaWidget, RocWidget } from './statWidgets';
 import { FlowWidget, TimelineWidget, TreeWidget, NetworkWidget, VennWidget } from './structureWidgets';
 
 class WidgetBoundary extends Component<{ identity: FigureSpec; children: ReactNode }, { failed: boolean }> {
@@ -29,9 +29,12 @@ function WidgetContent({ spec, imageUrl }: { spec: FigureSpec; imageUrl: string 
     case 'stacked': return <StackedWidget spec={spec} />;
     case 'box': return <BoxWidget spec={spec} />;
     case 'heatmap': return <HeatmapWidget spec={spec} />;
+    case 'histogram': return <HistogramWidget spec={spec} />;
+    case 'field': return <FieldWidget spec={spec} />;
     case 'volcano': return <VolcanoWidget spec={spec} />;
     case 'ordination': return <OrdinationWidget spec={spec} />;
     case 'survival': return <SurvivalWidget spec={spec} />;
+    case 'roc': return <RocWidget spec={spec} />;
     case 'doseResponse': return <DoseResponseWidget spec={spec} />;
     case 'formula': return <FormulaWidget spec={spec} />;
     case 'compare': return <CompareWidget spec={spec} />;

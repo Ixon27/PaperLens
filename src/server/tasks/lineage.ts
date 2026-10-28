@@ -61,7 +61,6 @@ const fromWork = (work: openalex.OpenAlexWork, id: string, side: 'ancestor' | 'd
   const s = openalex.toSummary(work);
   return { work, abstract: s.abstract, node: { id, side, title: s.title, year: s.year, authors: s.authors[0] ? s.authors[0] + (s.authors.length > 1 ? ' 외' : '') : '', venue: s.venue, citedBy: work.cited_by_count ?? null, doi: s.doi, role: null, note: '' } };
 };
-const titleKey = (title: string) => title.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 
 export function startLineage(paperId: string): string {
   return startJob(paperId, 'lineage', async (ctx) => {
@@ -72,13 +71,7 @@ export function startLineage(paperId: string): string {
       try { const result = await fn(); check(); return result; } catch (e) { check(); return fallback; }
     };
     ctx.progress(0.05, 'OpenAlex에서 참고문헌 찾는 중…');
-    let work: openalex.OpenAlexWork | null = null;
-    if (paper.openalex_id) work = await attempt(() => openalex.getById(paper.openalex_id!), null);
-    if (!work && paper.doi) work = await attempt(() => openalex.getByDoi(paper.doi!), null);
-    if (!work) {
-      const found = await attempt(() => openalex.search(paper.title), null);
-      if (found && titleKey(found.title ?? found.display_name ?? '') === titleKey(paper.title)) work = found;
-    }
+    const work = await attempt(() => openalex.findWork(paper), null);
     let source: LineageContent['source'] = 'references';
     let candidates: Candidate[] = [];
     if (work?.referenced_works?.length) {

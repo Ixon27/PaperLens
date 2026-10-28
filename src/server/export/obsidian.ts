@@ -8,13 +8,6 @@ export interface ExportAuthor {
   given?: string;
 }
 
-export const RESEARCH_TYPE_LABELS: Record<string, string> = {
-  wetlab: '실험실 측정(wet-lab)',
-  omics: '오믹스·계산·생물정보',
-  review: '리뷰·메타분석',
-  clinical: '임상·코호트·역학',
-};
-
 export function citekey(p: { authors: ExportAuthor[]; year: number | null }): string {
   const fam = p.authors[0]?.family ?? '';
   const ascii = fam
@@ -142,7 +135,7 @@ export interface NoteInput {
     issue: string | null;
     pages: string | null;
     doi: string | null;
-    researchTypes: string[];
+    fieldLabel: string | null;
   };
   tags: string[];
   analysis: string | null;
@@ -174,8 +167,7 @@ export function buildNote(n: NoteInput): string {
   const fam = p.authors[0]?.family;
   const heading = [fam, p.year].filter((x) => x != null && x !== '').join(' ');
   const out: string[] = [fm.join('\n'), '', `# ${p.title}${heading ? ` (${heading})` : ''}`, ''];
-  const labels = p.researchTypes.map((t) => RESEARCH_TYPE_LABELS[t] ?? t).join(', ');
-  out.push(`> paper-reader에서 내보냄 · ${date} · 엔진 ${n.engine ?? '-'} · 연구 유형 ${labels || '-'}`, '');
+  out.push(`> paper-reader에서 내보냄 · ${date} · 엔진 ${n.engine ?? '-'} · 분야 ${p.fieldLabel ?? '-'}`, '');
   if (n.pdfPath) out.push(`원문 PDF: [[${n.pdfPath}|PDF]]`, '');
   if (n.analysis?.trim()) out.push(tidyForVault(convertPageRefs(shiftHeadings(n.analysis), n.pdfPath)), '');
 

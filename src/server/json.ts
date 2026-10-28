@@ -8,10 +8,15 @@ export function parseJsonLoose<T>(text: string): T {
     const close = stripped[start] === '{' ? '}' : ']';
     const end = stripped.lastIndexOf(close);
     if (end > start) {
+      const slice = stripped.slice(start, end + 1);
       try {
-        return JSON.parse(stripped.slice(start, end + 1)) as T;
+        return JSON.parse(slice) as T;
       } catch {
-        // fall through to the uniform error below
+        try {
+          return JSON.parse(slice.replace(/\\(["\\/bfnrt]|u[0-9a-fA-F]{4})|\\/g, (m, keep) => (keep ? m : '\\\\'))) as T;
+        } catch {
+          // fall through to the uniform error below
+        }
       }
     }
   }

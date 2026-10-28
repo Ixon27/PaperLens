@@ -2,7 +2,8 @@
 const ABBREV = new Set([
   'al', 'fig', 'figs', 'eq', 'eqs', 'ref', 'refs', 'vs', 'approx', 'ca', 'cf', 'no', 'nos', 'vol', 'dr', 'prof', 'st', 'sp', 'spp', 'lcb',
   'subsp', 'var', 'inc', 'ltd', 'co', 'corp', 'etc', 'resp', 'min', 'max', 'jan', 'feb', 'mar', 'apr', 'jun', 'jul', 'aug', 'sep',
-  'sept', 'oct', 'nov', 'dec',
+  'sept', 'oct', 'nov', 'dec', 'sec', 'secs', 'sect', 'ch', 'chap', 'app', 'appx', 'pp', 'eqn', 'eqns', 'thm', 'thms',
+  'lem', 'prop', 'props', 'def', 'cor', 'rem', 'alg', 'tab', 'ex', 'ed', 'eds', 'rev',
 ]);
 
 /** Sentence end candidates: terminal punctuation, closing quotes/brackets, then whitespace. */
@@ -23,6 +24,7 @@ function blocksBoundary(word: string, prefix: string): boolean {
   if (/^\d+(?:\.\d+)+$/.test(word)) return false;
   if (/^[CF]$/.test(word) && /\d\s*[°◦]\s*$/.test(prefix)) return false;
   if (word.toLowerCase() === 'min' && /\d\s*$/.test(prefix)) return false;
+  if (/^[KVAWNJTΩ]$/u.test(word) && /\d\s*$/.test(prefix)) return false;
   if (/^\p{Lu}$/u.test(word)) return true;
   if (word.slice(0, -1).includes('.')) return true;
   return ABBREV.has(word.toLowerCase().replace(/\.$/, ''));

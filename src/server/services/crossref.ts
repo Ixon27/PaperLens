@@ -23,13 +23,17 @@ interface CrossrefWork {
   abstract?: string;
 }
 
+export function stripMarkup(s: string): string {
+  return s.replace(/<[^>]+>/g, '').replace(/&(?:amp|lt|gt);/g, (entity) => ({ '&amp;': '&', '&lt;': '<', '&gt;': '>' })[entity]!).replace(/\s+/g, ' ').trim();
+}
+
 export async function getWork(doi: string): Promise<WorkMeta | null> {
   const res = await getJson<{ message: CrossrefWork }>(`https://api.crossref.org/works/${encodeURIComponent(doi)}`);
   if (!res) return null;
   const w = res.message;
   const abstract = w.abstract?.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() || null;
   return {
-    title: w.title?.[0]?.replace(/\s+/g, ' ').trim() || doi,
+    title: stripMarkup(w.title?.[0] ?? '') || doi,
     authors: (w.author ?? [])
       .map((a) => ({ family: a.family ?? a.name ?? '', given: a.given }))
       .filter((a) => a.family),

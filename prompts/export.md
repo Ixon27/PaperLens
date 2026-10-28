@@ -2,8 +2,8 @@
 
 ## === SLUG ===
 두 줄만 출력하라.
-1줄: 이 논문 Obsidian 파일명용 영어 키워드 2~4개를 하이픈으로 이은 것. 학명·유전자·고유명사 대소문자 유지. 예: root-exudates-PGPR, Lactobacillus-consortia-selection
-2줄: 소문자·하이픈 태그 3~6개를 쉼표로. 예: lactobacillus, fermented-dairy, consortium-design
+1줄: 이 논문 Obsidian 파일명용 영어 키워드 2~4개를 하이픈으로 이은 것. 고유명사·약어·화학식·모델 이름 대소문자 유지. 예: perovskite-solar-cell-stability, graph-neural-network-oversmoothing, root-exudates-PGPR
+2줄: 소문자·하이픈 태그 3~6개를 쉼표로. 예: condensed-matter, machine-learning, density-functional-theory
 
 제목: {title}
 초록: {abstract}

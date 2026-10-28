@@ -1,4 +1,6 @@
 import { db, getBlocks, getPaper, isTranslatable, type PaperRow } from '../db';
+import { fieldGuide } from '../fields';
+import { resolveField } from '../../shared/fields';
 import { startJob, type JobCtx } from '../jobs';
 import { parseJsonLoose } from '../json';
 import { resolveModel, runLlm, type ModelSpec } from '../llm';
@@ -104,13 +106,13 @@ export function alignTranslation(
  * when the response could not be parsed twice (those blocks stay untranslated). LLM errors/cancel throw.
  */
 export async function translateBatch(
-  paper: Pick<PaperRow, 'id' | 'title' | 'abstract'>,
+  paper: Pick<PaperRow, 'id' | 'title' | 'abstract' | 'field' | 'field_suggested'>,
   batch: BatchBlock[],
   by: ModelSpec,
   signal?: AbortSignal,
 ): Promise<Record<string, BlockTranslation> | null> {
   const P = loadPrompt('translate');
-  const system = fill(P.SYSTEM, { title: paper.title, abstract: abstractOrPageOne(paper) });
+  const system = fill(P.SYSTEM, { title: paper.title, abstract: abstractOrPageOne(paper), field_guide: fieldGuide(resolveField(paper.field, paper.field_suggested)) });
   const blocksJson = JSON.stringify(Object.fromEntries(batch.map((b) => [String(b.idx), b.sentences.map(([s, e]) => b.text.slice(s, e))])));
   const prompt = fill(P.PAGE, { blocks_json: blocksJson });
 
