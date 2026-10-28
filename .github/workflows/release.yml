@@ -100,6 +100,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - name: Smoke fresh browser connections on Windows
+        timeout-minutes: 8
         run: npx tsx scripts/smoke-first-connect.ts
       - name: Smoke current npm Claude entrypoint on Windows
         run: |
