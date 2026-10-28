@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react';
 import type { FigureSpec } from '../../shared/figure-spec';
 import { PageChip } from '../components/Markdown';
 import { useViewer } from '../state/viewer';
+import { useCloseFigure } from './FigureDisplayContext';
 
 type Hotspot = Extract<FigureSpec, { kind: 'hotspot' }>;
 
 export function HotspotWidget({ spec, imageUrl }: { spec: Hotspot; imageUrl: string | null }) {
   const { jumpToPage } = useViewer();
+  const closeFigure = useCloseFigure();
+  const jump = (page: number) => { closeFigure(); jumpToPage(page); };
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   useEffect(() => {
@@ -38,8 +41,8 @@ export function HotspotWidget({ spec, imageUrl }: { spec: Hotspot; imageUrl: str
           ))}
         </div>
       )}
-      {spot && <div className="rounded-lg border border-accent/30 bg-accent-soft p-2"><strong>{selected! + 1}. {spot.label}</strong><p className="mt-1">{spot.detail}</p>{spot.page && <PageChip page={spot.page} onJump={jumpToPage} />}</div>}
-      <ol className="space-y-1">{spec.spots.map((item, i) => <li key={i}><button type="button" className="text-left text-accent hover:underline" onClick={() => setSelected(i)}>{i + 1}. {item.label}</button> <span className="text-fg-muted">{item.detail}</span>{item.page && <PageChip page={item.page} onJump={jumpToPage} />}</li>)}</ol>
+      {spot && <div className="rounded-lg border border-accent/30 bg-accent-soft p-2"><strong>{selected! + 1}. {spot.label}</strong><p className="mt-1">{spot.detail}</p>{spot.page && <PageChip page={spot.page} onJump={jump} />}</div>}
+      <ol className="space-y-1">{spec.spots.map((item, i) => <li key={i}><button type="button" className="text-left text-accent hover:underline" onClick={() => setSelected(i)}>{i + 1}. {item.label}</button> <span className="text-fg-muted">{item.detail}</span>{item.page && <PageChip page={item.page} onJump={jump} />}</li>)}</ol>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Plot from '@observablehq/plot';
+import { useFigureExpanded } from './FigureDisplayContext';
 
 // Only explicit string domains are laid out here. Continuous axes and inferred
 // scales retain Plot's own sizing and tick generation.
@@ -13,7 +14,11 @@ function categoryLayout(options: Plot.PlotOptions, availableWidth: number, measu
   const fx = categoryLabels(options.fx);
   const x = fx.length ? fx : categoryLabels(options.x);
   const y = categoryLabels(options.y);
-  if (!x.length && !y.length) return { ...options, width: availableWidth };
+  if (!x.length && !y.length) return {
+    ...options, width: availableWidth,
+    marginLeft: Math.max(options.marginLeft ?? options.margin ?? 40, options.y?.label ? 60 : 40),
+    marginBottom: Math.max(options.marginBottom ?? options.margin ?? 30, options.x?.label ? 50 : 30),
+  };
 
   const xScale = fx.length ? options.fx! : options.x!;
   const longestX = Math.max(0, ...x.map(measure));
@@ -43,6 +48,7 @@ function categoryLayout(options: Plot.PlotOptions, availableWidth: number, measu
 
 export function PlotFrame({ options }: { options: Plot.PlotOptions }) {
   const ref = useRef<HTMLDivElement>(null);
+  const expanded = useFigureExpanded();
   const [width, setWidth] = useState(0);
   const [scrollable, setScrollable] = useState(false);
   useEffect(() => {
@@ -60,7 +66,8 @@ export function PlotFrame({ options }: { options: Plot.PlotOptions }) {
       : { scheme: 'tableau10', ...options.color };
     const context = document.createElement('canvas').getContext('2d');
     if (context) context.font = '12px system-ui, sans-serif';
-    const layout = categoryLayout(options, width, text => context?.measureText(text).width ?? text.length * 12);
+    const sized = expanded ? { ...options, height: Math.max(options.height ?? 400, Math.min(720, Math.round(window.innerHeight * 0.55))) } : options;
+    const layout = categoryLayout(sized, width, text => context?.measureText(text).width ?? text.length * 12);
     const style = typeof options.style === 'string' ? options.style : { background: 'transparent', color: 'currentColor', fontSize: '12px', ...options.style };
     const chart = Plot.plot({ ...layout, color, style });
     // Plot defaults to max-width: 100%; give it a wide containing block so
@@ -71,7 +78,7 @@ export function PlotFrame({ options }: { options: Plot.PlotOptions }) {
     el.replaceChildren(canvas);
     setScrollable(layout.width > width);
     return () => { canvas.remove(); };
-  }, [options, width]);
+  }, [options, width, expanded]);
   return <div>
     {scrollable && <p className="mb-1 text-xs text-fg-muted">가로로 스크롤해 전체 항목 보기</p>}
     <div ref={ref} className="w-full overflow-x-auto" tabIndex={scrollable ? 0 : undefined} role={scrollable ? 'region' : undefined} aria-label={scrollable ? '그래프 (가로로 스크롤 가능)' : undefined} />

@@ -4,6 +4,7 @@ import type { FigureSpec } from '../../shared/figure-spec';
 import { PlotFrame } from './PlotFrame';
 import { Switch, ToggleChips } from './controls';
 import { logReason, useValidLog, formatNumber } from './scales';
+import { CurveReadout, useCurveReadout } from './CurveReadout';
 
 type Spec<K extends FigureSpec['kind']> = Extract<FigureSpec, { kind: K }>;
 function useSelection(items: string[]) {
@@ -20,12 +21,29 @@ export function LineWidget({ spec }: { spec: Spec<'line'> }) {
   const { active, toggle } = useSelection(names);
   const all = spec.series.flatMap(s => s.points);
   const [errors, setErrors] = useState(true);
-  const data = spec.series.filter(s => active.has(s.name)).flatMap(s => s.points.map(p => ({ ...p, series: s.name })));
+  const data = spec.series.filter(s => active.has(s.name)).flatMap(s => [...s.points].sort((a, b) => a.x - b.x).map(p => ({ ...p, series: s.name })));
   const err = data.filter(p => p.err !== undefined).map(p => ({ ...p, low: p.y - Math.abs(p.err!), high: p.y + Math.abs(p.err!) }));
   const xReason = logReason(data.map(p => p.x));
   const yReason = logReason(data.map(p => p.y), errors ? err.flatMap(p => [p.low, p.high]) : []);
   const [logX, setLogX] = useValidLog(!!spec.xLog, xReason), [logY, setLogY] = useValidLog(!!spec.yLog, yReason);
-  return <div className="space-y-2"><ToggleChips items={names} active={active} onToggle={toggle} /><div className={controls}><Switch label="로그 X" checked={logX} onChange={setLogX} disabled={!!xReason} description={xReason} /><Switch label="로그 Y" checked={logY} onChange={setLogY} disabled={!!yReason} description={yReason} />{all.some(p => p.err !== undefined) && <Switch label="오차 막대" checked={errors} onChange={setErrors} />}</div><PlotFrame options={{ x: { label: spec.xLabel, type: logX ? 'log' : 'linear' }, y: { label: spec.yLabel, type: logY ? 'log' : 'linear' }, color: { domain: names }, marks: [Plot.line(data, { x: 'x', y: 'y', stroke: 'series' }), errors ? Plot.ruleX(err, { x: 'x', y1: 'low', y2: 'high', stroke: 'series' }) : null, Plot.dot(data, { x: 'x', y: 'y', fill: 'series', r: 3 }), Plot.tip(data, Plot.pointer({ x: 'x', y: 'y', title: (d: typeof data[number]) => `${d.series}\n${spec.xLabel}: ${d.x}\n${spec.yLabel}: ${d.y}${d.err === undefined ? '' : ` ± ${d.err}`}` }))] }} /></div>;
+  const readout = useCurveReadout(spec.series, active, { logX, logY });
+  return <div className="space-y-2">
+    <ToggleChips items={names} active={active} onToggle={toggle} />
+    <div className={controls}>
+      <Switch label="로그 X" checked={logX} onChange={setLogX} disabled={!!xReason} description={xReason} />
+      <Switch label="로그 Y" checked={logY} onChange={setLogY} disabled={!!yReason} description={yReason} />
+      {all.some(p => p.err !== undefined) && <Switch label="오차 막대" checked={errors} onChange={setErrors} />}
+    </div>
+    <CurveReadout state={readout} xLabel={spec.xLabel} yLabel={spec.yLabel} />
+    <PlotFrame options={{ x: { label: spec.xLabel, type: logX ? 'log' : 'linear' }, y: { label: spec.yLabel, type: logY ? 'log' : 'linear' }, color: { domain: names }, marks: [
+      Plot.line(data, { x: 'x', y: 'y', stroke: 'series' }),
+      errors ? Plot.ruleX(err, { x: 'x', y1: 'low', y2: 'high', stroke: 'series' }) : null,
+      Plot.dot(data, { x: 'x', y: 'y', fill: 'series', r: 3 }),
+      readout.hasPoints && (!logX || readout.x > 0) ? Plot.ruleX([readout.x], { stroke: 'currentColor', strokeOpacity: 0.55, strokeDasharray: '4,4' }) : null,
+      Plot.dot(readout.dots.filter(dot => (!logX || dot.x > 0) && (!logY || dot.y > 0)), { x: 'x', y: 'y', fill: 'name', stroke: 'var(--pr-surface, white)', r: 5 }),
+      Plot.tip(data, Plot.pointer({ x: 'x', y: 'y', title: (d: typeof data[number]) => `${d.series}\n${spec.xLabel}: ${d.x}\n${spec.yLabel}: ${d.y}${d.err === undefined ? '' : ` ± ${d.err}`}` })),
+    ] }} />
+  </div>;
 }
 
 export function BarWidget({ spec }: { spec: Spec<'bar'> }) {

@@ -1,7 +1,10 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { FIGURE_KIND_LABELS, type FigureSpec } from '../../shared/figure-spec';
+import { smallBtnCls } from '../components/Dialog';
 import { SourceChip } from '../components/SourceChip';
 import { CompareWidget, TableWidget } from './dataWidgets';
+import { FigureCloseContext, FigureDisplayContext } from './FigureDisplayContext';
 import { HotspotWidget } from './HotspotWidget';
 import { LineWidget, BarWidget, ScatterWidget, StackedWidget, BoxWidget, HeatmapWidget, HistogramWidget, FieldWidget } from './plotWidgets';
 import { VolcanoWidget, OrdinationWidget, SurvivalWidget, DoseResponseWidget, FormulaWidget, RocWidget } from './statWidgets';
@@ -49,24 +52,80 @@ function WidgetContent({ spec, imageUrl }: { spec: FigureSpec; imageUrl: string 
 }
 
 export function FigureWidget({ spec, imageUrl }: { spec: FigureSpec; imageUrl: string | null }) {
+  const [expanded, setExpanded] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const expandButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    expandButton.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setExpanded(false);
+      } else if (event.key === 'Tab' && container.current) {
+        const focusable = Array.from(container.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        )).filter((element) => element.getClientRects().length > 0);
+        if (!focusable.length) return;
+        const first = focusable[0], last = focusable[focusable.length - 1];
+        if (event.shiftKey && (document.activeElement === first || !container.current.contains(document.activeElement))) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && (document.activeElement === last || !container.current.contains(document.activeElement))) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      previous?.focus({ preventScroll: true });
+    };
+  }, [expanded]);
+
   return (
     <WidgetBoundary identity={spec}>
-      <div className="space-y-3 rounded-xl border border-line bg-raised p-3">
-        <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <h4 className="mr-auto text-[14px] font-semibold text-fg">{spec.title}</h4>
-            <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-fg-muted">{FIGURE_KIND_LABELS[spec.kind]}</span>
-            {spec.approx && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-[11px] text-warning" title="그림에서 눈으로 읽은 값이라 원문과 다를 수 있습니다">근사값</span>}
+      <FigureDisplayContext.Provider value={expanded}>
+        <FigureCloseContext.Provider value={() => setExpanded(false)}>
+        <div
+          ref={container}
+          role={expanded ? 'dialog' : undefined}
+          aria-modal={expanded || undefined}
+          aria-label={expanded ? `${spec.title} 전체 화면` : undefined}
+          className={expanded
+            ? 'fixed inset-0 z-[100] overflow-y-auto bg-canvas p-3 text-fg sm:p-6'
+            : 'rounded-xl border border-line bg-raised p-3'}
+        >
+          <div className={`space-y-3 ${expanded ? 'mx-auto max-w-[1600px]' : ''}`}>
+            <div className={`space-y-1 ${expanded ? 'sticky top-0 z-10 border-b border-line bg-canvas pb-3' : ''}`}>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <h4 className="mr-auto min-w-0 text-[14px] font-semibold text-fg">{spec.title}</h4>
+                <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-fg-muted">{FIGURE_KIND_LABELS[spec.kind]}</span>
+                {spec.approx && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-[11px] text-warning" title="그림에서 눈으로 읽은 값이라 원문과 다를 수 있습니다">근사값</span>}
+                <button ref={expandButton} type="button" className={smallBtnCls} aria-expanded={expanded}
+                  aria-label={expanded ? '전체 화면 닫기' : '위젯 전체 화면으로 확대'}
+                  title={expanded ? '전체 화면 닫기 (Esc)' : '위젯 전체 화면으로 확대'}
+                  onClick={() => setExpanded((value) => !value)}>
+                  {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                  {expanded ? '닫기' : '전체 화면'}
+                </button>
+              </div>
+              <p className="text-[13px] leading-relaxed text-fg">{spec.takeaway}</p>
+              <p className="text-[12px] leading-relaxed text-fg-muted">{spec.howTo}</p>
+            </div>
+            <WidgetContent spec={spec} imageUrl={imageUrl} />
+            {(spec.sources.length > 0 || spec.notes.length > 0) && <div className="border-t border-line pt-2 text-[12px] text-fg-muted">
+              {spec.sources.length > 0 && <div>근거 {spec.sources.map((source, i) => <SourceChip key={i} page={source.page} endPage={null} label={`p.${source.page}`} quote={source.quote} onNavigate={() => setExpanded(false)} />)}</div>}
+              {spec.notes.length > 0 && <ul className="mt-1 list-disc space-y-0.5 pl-4">{spec.notes.map((note, i) => <li key={i}>{note}</li>)}</ul>}
+            </div>}
           </div>
-          <p className="text-[13px] text-fg">{spec.takeaway}</p>
-          <p className="text-[12px] text-fg-dim">{spec.howTo}</p>
         </div>
-        <WidgetContent spec={spec} imageUrl={imageUrl} />
-        {(spec.sources.length > 0 || spec.notes.length > 0) && <div className="border-t border-line pt-2 text-[12px] text-fg-muted">
-          {spec.sources.length > 0 && <div>근거 {spec.sources.map((source, i) => <SourceChip key={i} page={source.page} endPage={null} label={`p.${source.page}`} quote={source.quote} />)}</div>}
-          {spec.notes.length > 0 && <ul className="mt-1 list-disc space-y-0.5 pl-4">{spec.notes.map((note, i) => <li key={i}>{note}</li>)}</ul>}
-        </div>}
-      </div>
+        </FigureCloseContext.Provider>
+      </FigureDisplayContext.Provider>
     </WidgetBoundary>
   );
 }

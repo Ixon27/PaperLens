@@ -4,7 +4,7 @@ import { findQuote } from '../../shared/quote-match';
 import { usePaper } from '../state/paper';
 import { useViewer } from '../state/viewer';
 
-export function SourceChip({ page, endPage, label, quote }: { page: number; endPage: number | null; label: string; quote: string | null }) {
+export function SourceChip({ page, endPage, label, quote, onNavigate }: { page: number; endPage: number | null; label: string; quote: string | null; onNavigate?: () => void }) {
   const { blocks } = usePaper();
   const { jumpToPage, scrollToBlock, revealSource } = useViewer();
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -51,12 +51,12 @@ export function SourceChip({ page, endPage, label, quote }: { page: number; endP
         onMouseLeave={hide}
         onFocus={show}
         onBlur={hide}
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); jump(); }}
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); onNavigate?.(); jump(); }}
       >
         {label}{quote && <span aria-hidden="true"> “</span>}
       </button>
       {position && quote && createPortal(
-        <div id={tooltipId} role="tooltip" className="pointer-events-none fixed z-50 max-w-[320px] rounded-lg bg-raised p-2 text-[12.5px] shadow-pop" style={position}>
+        <div id={tooltipId} role="tooltip" className="pointer-events-none fixed z-[110] max-w-[320px] rounded-lg bg-raised p-2 text-[12.5px] shadow-pop" style={position}>
           <div className="italic">“{quote}”</div>
           <div className="mt-1 text-fg-dim">p.{page} · 클릭하면 원문 위치로 이동</div>
         </div>,

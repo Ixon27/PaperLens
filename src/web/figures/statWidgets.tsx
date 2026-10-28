@@ -7,6 +7,7 @@ import { smallGhostBtnCls } from '../components/Dialog';
 import { PlotFrame } from './PlotFrame';
 import { RangeSlider, Switch, ToggleChips } from './controls';
 import { formatNumber, logReason, useValidLog } from './scales';
+import { CurveReadout, useCurveReadout } from './CurveReadout';
 
 type Spec<K extends FigureSpec['kind']> = Extract<FigureSpec, { kind: K }>;
 
@@ -126,6 +127,7 @@ export function DoseResponseWidget({ spec }: { spec: Spec<'doseResponse'> }) {
 export function RocWidget({ spec }: { spec: Spec<'roc'> }) {
   const names = spec.curves.map(curve => curve.name);
   const { active, toggle } = useVisible(names);
+  const readout = useCurveReadout(spec.curves, active);
   const curves = spec.curves.filter(curve => active.has(curve.name)).map(curve => ({
     ...curve, points: [...curve.points].sort((a, b) => a.x - b.x),
   }));
@@ -138,9 +140,12 @@ export function RocWidget({ spec }: { spec: Spec<'roc'> }) {
       const area = curve.points.slice(1).reduce((sum, point, j) => sum + (point.x - curve.points[j].x) * (point.y + curve.points[j].y) / 2, 0);
       return <span key={curve.name} title={curve.auc === undefined ? '점으로 계산한 근사값' : undefined}>{i > 0 && ' · '}{curve.name}: AUC {curve.auc === undefined ? '≈ ' : ''}{(curve.auc ?? area).toFixed(3)}</span>;
     })}</p>
+    <CurveReadout state={readout} xLabel={xLabel} yLabel={yLabel} />
     <PlotFrame options={{ x: { label: xLabel, domain: [0, 1] }, y: { label: yLabel, domain: [0, 1] }, color: { domain: names, scheme: 'tableau10', legend: true }, marks: [
       ...(spec.mode === 'roc' ? [Plot.line([{ x: 0, y: 0 }, { x: 1, y: 1 }], { x: 'x', y: 'y', stroke: 'currentColor', strokeOpacity: 0.35, strokeDasharray: '4,4' })] : []),
       Plot.line(points, { x: 'x', y: 'y', z: 'group', stroke: 'group' }),
+      readout.hasPoints ? Plot.ruleX([readout.x], { stroke: 'currentColor', strokeOpacity: 0.55, strokeDasharray: '4,4' }) : null,
+      Plot.dot(readout.dots, { x: 'x', y: 'y', fill: 'name', stroke: 'var(--pr-surface, white)', r: 5 }),
       Plot.tip(points, Plot.pointer({ x: 'x', y: 'y', title: (d: typeof points[number]) => `${d.group}\n${xLabel}: ${formatNumber(d.x)}\n${yLabel}: ${formatNumber(d.y)}` })),
     ] }} />
   </div>;
