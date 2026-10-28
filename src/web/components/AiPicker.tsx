@@ -4,9 +4,9 @@ import { api } from '../api';
 import type { Settings } from '../types';
 import type { EngineId, ModelCatalog, ModelChoice } from '../../shared/models';
 import { effortLabel, engineLabel } from '../labels';
-import { useModelCatalog } from '../state/models';
+import { refreshCatalogAfterProviderChange, useModelCatalog } from '../state/models';
 import { iconBtnCls } from './Dialog';
-import { EffortRing, EngineTabs, ModelList, choicesFor, effortAfterModelChange, modelLabel } from './ModelChooser';
+import { EffortControl, EngineTabs, ModelList, choicesFor, effortAfterModelChange, modelLabel } from './ModelChooser';
 import { usePresence } from './motion';
 import { useToast } from './Toast';
 
@@ -55,22 +55,21 @@ function ProfileRow({
   const levels = choicesFor(engine, catalog, model).find((m) => m.value === model)?.efforts ?? [];
   return (
     <div>
-      <button
-        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 hover:bg-hover"
-        aria-expanded={expanded}
-        onClick={onToggle}
-      >
-        <EffortRing value={effort} levels={levels} size={16} />
-        <span className="min-w-0 flex-1">
-          <span className="block text-[13px] font-medium text-fg">{title}</span>
-          <span className="block text-[11.5px] text-fg-dim">{subtitle}</span>
-        </span>
-        <span className="min-w-0 max-w-[45%] text-right">
-          <span className="block truncate text-[12.5px] text-fg">{modelLabel(engine, catalog, model)}</span>
-          <span className="block font-mono text-[11.5px] text-fg-muted">{effortLabel(effort)}</span>
-        </span>
-        <ChevronDown size={14} className={`shrink-0 text-fg-muted transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
-      </button>
+      <div className="flex items-center gap-1 rounded-xl px-2">
+        <EffortControl label={title} value={effort} levels={levels} onChange={onEffort} />
+        <button
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors duration-150 hover:bg-hover"
+          aria-expanded={expanded}
+          onClick={onToggle}
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13px] font-medium text-fg">{title}</span>
+            <span className="block text-[11.5px] text-fg-dim">{subtitle}</span>
+          </span>
+          <span className="min-w-0 max-w-[45%] truncate text-[12.5px] text-fg">{modelLabel(engine, catalog, model)}</span>
+          <ChevronDown size={14} className={`shrink-0 text-fg-muted transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
       <div className="pr-accordion" data-open={expanded || undefined}>
         <div
           ref={(el) => {
@@ -84,9 +83,7 @@ function ProfileRow({
             loading={loading}
             error={error}
             model={model}
-            effort={effort}
             onModel={onModel}
-            onEffort={onEffort}
           />
         </div>
       </div>
@@ -104,11 +101,15 @@ export function AiPicker() {
   const presence = usePresence(open, 120);
   const wrapRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLButtonElement>(null);
+  const savedRef = useRef<Settings | null>(null);
+  const pendingRef = useRef<Patch[]>([]);
+  const savingRef = useRef(false);
   const toast = useToast();
 
   useEffect(() => {
     Promise.all([api<Settings>('/api/settings'), api<Record<EngineId, boolean>>('/api/engines')])
       .then(([s, e]) => {
+        savedRef.current = s;
         setSettings(s);
         setEngines(e);
       })
@@ -116,7 +117,19 @@ export function AiPicker() {
   }, [toast]);
 
   useEffect(() => {
+    const onProviderChanged = () => {
+      void api<Record<EngineId, boolean>>('/api/engines').then(setEngines).catch(() => {});
+      void refreshCatalogAfterProviderChange();
+    };
+    window.addEventListener('paperlens-provider-changed', onProviderChanged);
+    return () => window.removeEventListener('paperlens-provider-changed', onProviderChanged);
+  }, []);
+
+  useEffect(() => {
     if (!open) return;
+    void api<Record<EngineId, boolean>>('/api/engines')
+      .then(setEngines)
+      .catch(() => {});
     const onDown = (e: PointerEvent) => {
       if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
     };
@@ -135,15 +148,31 @@ export function AiPicker() {
 
   if (!settings) return null;
 
-  const patch = async (p: Patch) => {
-    const prev = settings;
-    setSettings(applyPatch(prev, p));
-    try {
-      setSettings(await api<Settings>('/api/settings', { method: 'PUT', json: p }));
-    } catch (e) {
-      setSettings(prev);
-      toast(e instanceof Error ? e.message : '설정을 저장하지 못했습니다', { tone: 'error' });
-    }
+  const patch = (p: Patch) => {
+    pendingRef.current.push(p);
+    const update = () => {
+      if (savedRef.current) {
+        const current = pendingRef.current.reduce(applyPatch, savedRef.current);
+        setSettings(current);
+        window.dispatchEvent(new CustomEvent('paperlens-model-settings', { detail: current }));
+      }
+    };
+    update();
+    if (savingRef.current) return;
+    savingRef.current = true;
+    void (async () => {
+      while (pendingRef.current.length) {
+        const next = pendingRef.current[0];
+        try {
+          savedRef.current = await api<Settings>('/api/settings', { method: 'PUT', json: next });
+        } catch (e) {
+          toast(e instanceof Error ? e.message : '설정을 저장하지 못했습니다', { tone: 'error' });
+        }
+        pendingRef.current.shift();
+        update();
+      }
+      savingRef.current = false;
+    })();
   };
 
   const engine = settings.engine;
@@ -160,16 +189,16 @@ export function AiPicker() {
   const status = catalogLoading ? '모델 목록 불러오는 중…' : engineError ?? 'CLI에서 불러온 목록';
 
   return (
-    <div ref={wrapRef} className="relative">
+    <div ref={wrapRef} className="relative inline-flex items-center rounded-full border border-line bg-raised">
+      <EffortControl label="Quick" value={profiles.quickEffort} levels={levelsOf(profiles.quickModel)} onChange={(v) => selectEffort('quick', v)} />
       <button
         ref={pillRef}
-        className="no-drag inline-flex h-8 max-w-[360px] items-center gap-2 rounded-full border border-line bg-raised pr-2 pl-2.5 text-[13px] transition-[border-color,transform] duration-150 hover:border-line-strong active:scale-[0.98]"
+        className="no-drag inline-flex h-8 max-w-[360px] items-center gap-2 rounded-full pr-2 pl-1 text-[13px] transition-colors duration-150 hover:text-fg"
         aria-haspopup="dialog"
         aria-expanded={open}
         title={`빠른 작업: ${quickLabel} · ${effortLabel(profiles.quickEffort)}\n깊은 작업: ${heavyLabel} · ${effortLabel(profiles.heavyEffort)}`}
         onClick={() => setOpen((o) => !o)}
       >
-        <EffortRing value={profiles.quickEffort} levels={levelsOf(profiles.quickModel)} />
         <span className="font-medium text-accent">{engineLabel(engine)}</span>
         <span className="truncate text-fg">{quickLabel}</span>
         {heavyLabel !== quickLabel && (

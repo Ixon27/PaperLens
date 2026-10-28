@@ -43,14 +43,15 @@ function findBinary(name: string, candidates: string[]): string | null {
 
 /** Where the official installers put each CLI, for apps started without the user's shell PATH. */
 const appData = process.env.APPDATA || join(homedir(), 'AppData', 'Roaming');
+const localAppData = process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local');
 const CANDIDATES = process.platform === 'win32'
   ? {
       claude: [join(homedir(), '.local', 'bin', 'claude.exe'), join(appData, 'npm', 'claude.cmd')],
-      codex: [join(appData, 'npm', 'codex.cmd'), join(homedir(), '.local', 'bin', 'codex.exe')],
+      codex: [process.env.CODEX_INSTALL_DIR ? join(process.env.CODEX_INSTALL_DIR, 'codex.exe') : '', join(appData, 'npm', 'codex.cmd'), join(localAppData, 'Programs', 'OpenAI', 'Codex', 'bin', 'codex.exe'), join(homedir(), '.local', 'bin', 'codex.exe')],
     }
   : {
       claude: ['/opt/homebrew/bin/claude', '/usr/local/bin/claude', '~/.local/bin/claude'],
-      codex: ['~/.local/bin/codex', '/opt/homebrew/bin/codex'],
+      codex: [process.env.CODEX_INSTALL_DIR ? join(process.env.CODEX_INSTALL_DIR, 'codex') : '', '~/.local/bin/codex', '/opt/homebrew/bin/codex', '/usr/local/bin/codex'],
     };
 
 export const BIN = {

@@ -46,9 +46,34 @@ export function EffortRing({ value, levels, size = 14 }: { value: string; levels
         transform="rotate(-90 7 7)"
         opacity={f === 0 ? 0 : 1}
         strokeDasharray={`${c * f} ${c}`}
-        style={{ transition: 'stroke-dasharray 220ms var(--ease-out)' }}
       />
     </svg>
+  );
+}
+
+/** Cycle only through the selected model's supported levels and its CLI default. */
+export function EffortControl({ label, value, levels, onChange, disabled = false }: {
+  label: string;
+  value: string;
+  levels: string[];
+  onChange(value: string): void;
+  disabled?: boolean;
+}) {
+  const options = ['', ...levels.filter((level) => level !== '')];
+  const next = options[(options.indexOf(value) + 1) % options.length];
+  const description = `${label} effort: ${effortLabel(value)}${levels.length ? `. Click to change to ${effortLabel(next)}` : ''}`;
+  return (
+    <button
+      type="button"
+      aria-label={description}
+      title={description}
+      disabled={disabled || levels.length === 0}
+      className="no-drag inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-1.5 text-[11.5px] text-fg-muted hover:bg-hover hover:text-fg focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
+      onClick={() => onChange(next)}
+    >
+      <EffortRing value={value} levels={levels} size={16} />
+      <span>{effortLabel(value)}</span>
+    </button>
   );
 }
 
@@ -82,7 +107,7 @@ export function EngineTabs({ value, engines, onChange }: { value: EngineId; engi
   );
 }
 
-/** Model list + 작업 수준 chips for one engine. */
+/** Model list for one engine. */
 export function ModelList({
   label,
   engine,
@@ -90,9 +115,7 @@ export function ModelList({
   loading,
   error,
   model,
-  effort,
   onModel,
-  onEffort,
 }: {
   label: string;
   engine: EngineId;
@@ -100,14 +123,9 @@ export function ModelList({
   loading: boolean;
   error: string | null;
   model: string;
-  effort: string;
   onModel(m: ModelChoice): void;
-  onEffort(v: string): void;
 }) {
   const choices = choicesFor(engine, catalog, model);
-  const levels = choices.find((m) => m.value === model)?.efforts ?? [];
-  const efforts = ['', ...levels];
-  if (!efforts.includes(effort)) efforts.push(effort);
   return (
     <div className="px-1 pt-1 pb-3">
       {error && <p className="mb-1.5 px-1 text-[12px] text-warning">{error}</p>}
@@ -133,25 +151,6 @@ export function ModelList({
               );
             })}
       </div>
-      <div className="mt-2.5 flex items-start gap-2 px-1">
-        <span className="w-16 shrink-0 pt-1.5 text-[12px] text-fg-muted">작업 수준</span>
-        <div role="radiogroup" aria-label={`${label} 작업 수준`} className="flex flex-wrap gap-1.5">
-          {efforts.map((v) => (
-            <button
-              key={v || '(default)'}
-              role="radio"
-              aria-checked={v === effort}
-              className={`h-7 rounded-full border px-2.5 text-[12px] transition-colors duration-150 ${
-                v === effort ? 'border-accent/50 bg-accent-soft text-accent' : 'border-line text-fg-muted hover:bg-hover hover:text-fg'
-              }`}
-              onClick={() => onEffort(v)}
-            >
-              {effortLabel(v)}
-            </button>
-          ))}
-        </div>
-      </div>
-      <p className="mt-1.5 pl-[4.75rem] text-[11px] text-fg-dim">높을수록 더 깊이 생각하지만 느리고 사용량이 늘어납니다.</p>
     </div>
   );
 }

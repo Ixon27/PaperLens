@@ -34,6 +34,12 @@ export function refreshCatalog(): Promise<void> {
   return inFlight;
 }
 
+/** Re-discover after any request that began before a provider changed. */
+export async function refreshCatalogAfterProviderChange(): Promise<void> {
+  if (inFlight) await inFlight;
+  await refreshCatalog();
+}
+
 const subscribe = (l: () => void) => {
   listeners.add(l);
   return () => {

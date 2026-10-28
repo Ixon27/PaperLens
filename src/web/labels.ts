@@ -5,14 +5,14 @@ export function engineLabel(e?: string | null): string {
 }
 
 export const EFFORT_LABELS: Record<string, string> = {
-  '': '기본',
-  minimal: '최소',
-  low: '낮음',
-  medium: '보통',
-  high: '높음',
-  xhigh: '매우 높음',
-  max: '최대',
-  ultra: '울트라',
+  '': 'Default',
+  minimal: 'Minimal',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Very High',
+  max: 'Max',
+  ultra: 'Ultra',
 };
 
 export const effortLabel = (v: string): string => EFFORT_LABELS[v] ?? v;

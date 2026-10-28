@@ -11,6 +11,7 @@ import { cliSlots } from './semaphore';
 import { runClaude } from './claude';
 import { runCodex } from './codex';
 import { shutdownModelCatalog } from './models';
+import { cancelProviderOperations } from '../provider-connect';
 
 export type { Engine, ModelSpec };
 export type Profile = 'quick' | 'heavy';
@@ -78,6 +79,7 @@ const inFlight = new Set<Promise<void>>();
 /** Abort both background jobs and request-scoped chat/selection CLI processes when the app quits. */
 export async function shutdownLlm(): Promise<void> {
   shutdown.abort();
+  cancelProviderOperations();
   await Promise.all([Promise.all(inFlight), shutdownModelCatalog()]);
 }
 

@@ -6,7 +6,8 @@ import type { Settings } from '../types';
 import type { EngineId, ModelSpec } from '../../shared/models';
 import { useModelCatalog } from '../state/models';
 import { formatMadeBy } from './ModelBadge';
-import { EngineTabs, ModelList, effortAfterModelChange } from './ModelChooser';
+import { EffortControl, EngineTabs, ModelList, choicesFor, effortAfterModelChange, modelLabel } from './ModelChooser';
+import { engineLabel } from '../labels';
 import { usePresence } from './motion';
 
 const quickSpec = (s: Settings, engine: EngineId): ModelSpec => ({ engine, model: s[engine].quickModel, effort: s[engine].quickEffort });
@@ -51,12 +52,23 @@ export function ChatModelPicker({
   const wrapRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
+  const settingsVersion = useRef(0);
+
+  useEffect(() => {
+    const onSettings = (event: Event) => {
+      settingsVersion.current++;
+      setSettings((event as CustomEvent<Settings>).detail);
+    };
+    window.addEventListener('paperlens-model-settings', onSettings);
+    return () => window.removeEventListener('paperlens-model-settings', onSettings);
+  }, []);
 
   // The 빠른 작업 setting can change in the top bar at any time, so read it again on every open.
   const load = useCallback(() => {
+    const version = settingsVersion.current;
     Promise.all([api<Settings>('/api/settings'), api<Record<EngineId, boolean>>('/api/engines')])
       .then(([s, e]) => {
-        setSettings(s);
+        if (settingsVersion.current === version) setSettings(s);
         setEngines(e);
       })
       .catch(() => {});
@@ -100,10 +112,17 @@ export function ChatModelPicker({
   const engineError = error ?? catalog?.[shown.engine].error ?? null;
 
   return (
-    <div ref={wrapRef} className="relative min-w-0">
+    <div ref={wrapRef} className="relative inline-flex min-w-0 items-center rounded-full border border-line">
+      <EffortControl
+        label="Chat"
+        value={shown.effort}
+        levels={choicesFor(shown.engine, catalog, shown.model).find((m) => m.value === shown.model)?.efforts ?? []}
+        disabled={disabled}
+        onChange={(effort) => onChange({ ...shown, effort })}
+      />
       <button
         ref={pillRef}
-        className="inline-flex h-7 max-w-[min(200px,100%)] items-center gap-1.5 rounded-full border border-line px-2.5 text-[12px] text-fg-muted transition-colors duration-150 hover:text-fg disabled:opacity-50"
+        className="inline-flex h-7 max-w-[min(200px,100%)] min-w-0 items-center gap-1.5 rounded-full pr-2.5 text-[12px] text-fg-muted transition-colors duration-150 hover:text-fg disabled:opacity-50"
         aria-haspopup="dialog"
         aria-expanded={open}
         disabled={disabled}
@@ -113,7 +132,7 @@ export function ChatModelPicker({
           setOpen((o) => !o);
         }}
       >
-        <span className="truncate">{formatMadeBy(shown, catalog)}</span>
+        <span className="truncate">{engineLabel(shown.engine)} · {modelLabel(shown.engine, catalog, shown.model)}</span>
         <ChevronDown size={12} className={`shrink-0 transition-transform duration-200 ${open !== (placement === 'up') ? 'rotate-180' : ''}`} />
       </button>
       {presence.mounted &&
@@ -152,9 +171,7 @@ export function ChatModelPicker({
                 loading={loading && !catalog}
                 error={engineError}
                 model={shown.model}
-                effort={shown.effort}
                 onModel={(m) => onChange({ engine: shown.engine, model: m.value, effort: effortAfterModelChange(shown.effort, m) })}
-                onEffort={(v) => onChange({ ...shown, effort: v })}
               />
             </div>
           </div>,

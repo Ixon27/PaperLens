@@ -1,41 +1,17 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
 import { api } from '../api';
 import { THIS_COMPUTER } from '../labels';
 import type { Settings, SystemInfo } from '../types';
-import { btnCls, Dialog, primaryBtnCls, smallGhostBtnCls } from './Dialog';
+import { btnCls, Dialog, primaryBtnCls } from './Dialog';
 import { PathRow, SettingsRow, SettingsSection, VaultPicker } from './SettingsRows';
+import { ProviderConnections } from './ProviderConnections';
 import { useToast } from './Toast';
 
 interface Setup {
   settings: Settings;
   system: SystemInfo;
-  engines: { claude: boolean; codex: boolean };
 }
 
-const linkCls = 'text-accent hover:underline';
-
-function InstallPill({ ok }: { ok: boolean }) {
-  return ok ? (
-    <span className="rounded-full bg-success-soft px-2 py-0.5 text-[11px] font-medium text-success">설치됨</span>
-  ) : (
-    <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] font-medium text-fg-muted">설치 필요</span>
-  );
-}
-
-function Guides({ setup, auth }: { setup: string; auth: string }) {
-  return (
-    <>
-      <a className={linkCls} href={setup} target="_blank" rel="noreferrer">
-        설치 방법
-      </a>
-      {' · '}
-      <a className={linkCls} href={auth} target="_blank" rel="noreferrer">
-        로그인 방법
-      </a>
-    </>
-  );
-}
 
 export function OnboardingDialog({ onDone }: { onDone(): void }) {
   const [setup, setSetup] = useState<Setup | null>(null);
@@ -50,12 +26,11 @@ export function OnboardingDialog({ onDone }: { onDone(): void }) {
     setLoading(true);
     setError(null);
     try {
-      const [settings, system, engines] = await Promise.all([
+      const [settings, system] = await Promise.all([
         api<Settings>('/api/settings'),
         api<SystemInfo>('/api/system'),
-        api<Setup['engines']>('/api/engines'),
       ]);
-      setSetup({ settings, system, engines });
+      setSetup({ settings, system });
       if (!setup) setVaultPath(settings.vaultPath);
     } catch (e) {
       setError(e instanceof Error ? e.message : '초기 설정을 불러오지 못했습니다');
@@ -121,32 +96,7 @@ export function OnboardingDialog({ onDone }: { onDone(): void }) {
       )}
       {setup && (
         <>
-          <SettingsSection
-            title="AI 연결"
-            action={
-              <button className={smallGhostBtnCls} disabled={busy} onClick={() => void load()}>
-                <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-                다시 확인
-              </button>
-            }
-            note={
-              <>
-                설치 후 터미널에서 <code className="font-mono text-fg">claude</code> 또는 <code className="font-mono text-fg">codex login</code>을 한 번
-                실행해 본인 계정으로 로그인하세요. AI 없이도 PDF 읽기·하이라이트·메모는 쓸 수 있습니다.
-              </>
-            }
-          >
-            <SettingsRow
-              label="Claude Code"
-              aside={<InstallPill ok={setup.engines.claude} />}
-              description={<Guides setup="https://code.claude.com/docs/en/setup" auth="https://code.claude.com/docs/en/authentication" />}
-            />
-            <SettingsRow
-              label="Codex"
-              aside={<InstallPill ok={setup.engines.codex} />}
-              description={<Guides setup="https://developers.openai.com/codex/cli/" auth="https://developers.openai.com/codex/auth/" />}
-            />
-          </SettingsSection>
+          <ProviderConnections desktop={setup.system.desktop} />
           <SettingsSection title="Obsidian (선택)">
             <SettingsRow label="볼트 폴더" description="노트는 볼트의 04_References/Papers 폴더에 저장됩니다.">
               <VaultPicker value={vaultPath} home={setup.system.home} disabled={saving} onBusyChange={setChoosing} onChange={setVaultPath} />
