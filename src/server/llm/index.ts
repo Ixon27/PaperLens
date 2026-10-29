@@ -4,7 +4,7 @@ import type { ChildProcess } from 'node:child_process';
 import { nanoid } from 'nanoid';
 import { BIN, PATHS } from '../config';
 import { HttpError } from '../http-error';
-import { getSettings, type Engine } from '../settings';
+import { getSettings, rememberLastEngine, type Engine } from '../settings';
 import type { ModelSpec } from '../../shared/models';
 import { stopCli } from './command';
 import { cliSlots } from './semaphore';
@@ -131,6 +131,7 @@ export async function runLlm(req: LlmRequest): Promise<LlmResult> {
     try {
       const text = await out;
       if (failure) throw failure;
+      rememberLastEngine(which);
       return { text, by: spec };
     } catch (e) {
       throw failure ?? e;

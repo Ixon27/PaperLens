@@ -82,6 +82,14 @@ export function activeJob(paperId: string, kind: JobKind, key: string | null = n
   return null;
 }
 
+/** Any queued or running job of the paper (sync leaves such papers alone until it finishes). */
+export function paperHasActiveJob(paperId: string): boolean {
+  for (const j of live.values()) {
+    if (j.row.paper_id === paperId && (j.row.status === 'queued' || j.row.status === 'running')) return true;
+  }
+  return false;
+}
+
 export function activeKeyedJobs(paperId: string, kind: JobKind): { key: string; id: string }[] {
   return Array.from(live.values())
     .filter((j) => j.row.paper_id === paperId && j.row.kind === kind && j.key !== null && (j.row.status === 'queued' || j.row.status === 'running'))

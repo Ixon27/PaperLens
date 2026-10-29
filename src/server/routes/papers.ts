@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Hono } from 'hono';
 import { isFieldId, type FieldId } from '../../shared/fields';
@@ -10,7 +10,8 @@ import { HttpError } from '../http-error';
 import { orderSections } from '../tasks/analysis';
 import { attachPdf, ensureCurrentLayout, importFromInput, importUpload, normalizeDoi, paperIdByDoi, retryPaperPdf } from '../tasks/import';
 import { ensureTranslationSentences } from '../tasks/translation-alignment';
-import { suggestField } from '../tasks/suggest-field';
+import { deletePaper } from '../tasks/delete-paper';
+import { suggestField, type FieldSuggestion } from '../tasks/suggest-field';
 import type { MadeBy } from '../../shared/models';
 
 export const papers = new Hono();
@@ -21,7 +22,7 @@ function fieldInput(v: unknown): FieldId | null {
   throw new HttpError(400, '알 수 없는 분야입니다');
 }
 
-const fieldSuggestions = new Map<string, Promise<FieldId | null>>();
+const fieldSuggestions = new Map<string, Promise<FieldSuggestion>>();
 
 export function paperStatus(paperId: string) {
   const blocks = db.prepare('SELECT is_ref, text, kind FROM blocks WHERE paper_id=?').all(paperId) as Pick<BlockRow, 'is_ref' | 'text' | 'kind'>[];
@@ -60,6 +61,8 @@ function paperDto(p: PaperRow) {
     pageCount: p.page_count,
     field: isFieldId(p.field) ? p.field : null,
     fieldSuggested: isFieldId(p.field_suggested) ? p.field_suggested : null,
+    createdAt: p.created_at,
+    lastOpenedAt: p.last_opened_at,
     status: paperStatus(p.id),
     // Running job first; otherwise the latest import job so its final message (e.g. "no OA PDF") stays visible.
     job: jobDto(running ?? (importJob && !p.pdf_file ? importJob : null)),
@@ -133,14 +136,14 @@ papers.put('/papers/:id/field', async (c) => {
 
 papers.post('/papers/:id/field/suggest', async (c) => {
   const paper = requirePaper(c.req.param('id'));
-  if (isFieldId(paper.field_suggested)) return c.json({ suggested: paper.field_suggested });
+  if (isFieldId(paper.field_suggested)) return c.json({ suggested: paper.field_suggested, engine: null, skipped: [] } satisfies FieldSuggestion);
   let pending = fieldSuggestions.get(paper.id);
   if (!pending) {
     pending = suggestField(paper).finally(() => fieldSuggestions.delete(paper.id));
     fieldSuggestions.set(paper.id, pending);
   }
   try {
-    return c.json({ suggested: await pending });
+    return c.json(await pending);
   } catch (e) {
     throw new HttpError(502, e instanceof Error ? e.message : String(e));
   }
@@ -199,20 +202,7 @@ papers.patch('/papers/:id', async (c) => {
 });
 
 papers.delete('/papers/:id', (c) => {
-  const p = requirePaper(c.req.param('id'));
-  const images = [
-    ...(db.prepare('SELECT image_file FROM highlights WHERE paper_id=? AND image_file IS NOT NULL').all(p.id) as { image_file: string }[]),
-    ...(db.prepare('SELECT image_file FROM figures WHERE paper_id=? AND image_file IS NOT NULL').all(p.id) as { image_file: string }[]),
-    ...(db
-      .prepare(
-        'SELECT m.image_file FROM messages m JOIN threads t ON t.id=m.thread_id WHERE t.paper_id=? AND m.image_file IS NOT NULL',
-      )
-      .all(p.id) as { image_file: string }[]),
-  ];
-  for (const { image_file } of images) rmSync(join(PATHS.images, image_file), { force: true });
-  if (p.pdf_file) rmSync(join(PATHS.pdfs, p.pdf_file), { force: true });
-  db.prepare('DELETE FROM papers WHERE id=?').run(p.id);
-  db.prepare('DELETE FROM papers_fts WHERE paper_id=?').run(p.id);
+  deletePaper(requirePaper(c.req.param('id')));
   return c.json({ ok: true });
 });
 

@@ -8,6 +8,7 @@ import { btnCls, Dialog, inputCls, primaryBtnCls } from './Dialog';
 import { PathRow, SettingsRow, SettingsSection, VaultPicker } from './SettingsRows';
 import { ProviderConnections } from './ProviderConnections';
 import { useToast } from './Toast';
+import { SyncSettings } from './SyncSettings';
 
 const THEMES: { id: ThemePref; label: string; Icon: typeof Sun }[] = [
   { id: 'system', label: '시스템', Icon: Monitor },
@@ -112,6 +113,7 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
             </SettingsRow>
           </SettingsSection>
           <ProviderConnections desktop={system.desktop} />
+          <SyncSettings />
           <SettingsSection title="AI 맞춤" note="AI 모델과 작업 수준은 오른쪽 위 모델 버튼에서 바꿉니다.">
             <SettingsRow
               label="나에 대해"

@@ -213,16 +213,23 @@ function WorkspaceInner() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line bg-surface px-3">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-surface px-3">
         <Link href="/" className={`${ghostBtnCls} shrink-0`}>
           <ArrowLeft size={15} />
           라이브러리
         </Link>
-        <button className="min-w-0 flex-1 truncate text-left text-[13.5px] font-semibold text-fg hover:underline" title="논문 정보 수정" onClick={() => setMetaOpen(true)}>
+        <div className="h-5 w-px shrink-0 bg-line" />
+        <button className="min-w-0 flex-1 truncate rounded-md px-1 text-left text-[14px] font-semibold text-fg hover:text-accent" title="논문 정보 수정" onClick={() => setMetaOpen(true)}>
           {paper.title}
           {meta && <span className="ml-2 font-normal text-fg-muted">{meta}</span>}
         </button>
-        <button className={`${chipCls(false)} shrink-0`} title="분야 바꾸기" onClick={() => setMetaOpen(true)}>
+        <button
+          className={`inline-flex h-7 shrink-0 items-center rounded-full px-2.5 text-[12px] font-medium whitespace-nowrap transition-opacity duration-150 hover:opacity-80 ${
+            paper.field ? 'bg-accent-soft text-accent' : 'bg-warning-soft text-warning'
+          }`}
+          title="분야 바꾸기"
+          onClick={() => setMetaOpen(true)}
+        >
           {paper.field ? FIELD_LABELS[paper.field] : '분야 미정'}
         </button>
         <button className={`${chipCls(showTranslation)} shrink-0`} aria-pressed={showTranslation} onClick={() => setShowTranslation(!showTranslation)}>
@@ -344,7 +351,7 @@ function RailButton({
   return (
     <button
       className={`group relative grid h-9 w-9 place-items-center rounded-lg transition-colors duration-150 ${
-        active ? 'bg-surface text-fg shadow-sm ring-1 ring-line' : 'text-fg-muted hover:bg-hover hover:text-fg'
+        active ? 'bg-accent-soft text-accent' : 'text-fg-muted hover:bg-hover hover:text-fg'
       }`}
       aria-label={label}
       aria-pressed={active}

@@ -112,7 +112,7 @@ function splitName(display: string): Author {
   return { family, given: parts.join(' ') || undefined };
 }
 
-const pdfPath = (paperId: string) => join(PATHS.pdfs, `${paperId}.pdf`);
+export const pdfPath = (paperId: string) => join(PATHS.pdfs, `${paperId}.pdf`);
 
 /** Replace a paper's blocks (dropping translations, which are keyed to them) and refresh FTS. */
 function storeBlocks(paperId: string, { pageCount, blocks }: ExtractionResult): void {
@@ -136,6 +136,11 @@ export async function ingestPdf(paperId: string, ctx: JobCtx, extracted?: Extrac
   storeBlocks(paperId, result);
   const paragraphs = result.blocks.filter((b) => b.kind === 'body').length;
   ctx.progress(1, result.blocks.length ? `PDF 저장 완료 · ${result.pageCount}쪽 · 문단 ${paragraphs}개` : 'PDF 저장 완료 — 텍스트 레이어가 없는 스캔본이므로 AI 기능을 쓸 수 없습니다');
+}
+
+/** Extract `pdfs/<paperId>.pdf` (just written by sync) into blocks; drops the paper's translations. */
+export async function extractPaperPdf(paperId: string): Promise<void> {
+  storeBlocks(paperId, await extractBlocks(pdfPath(paperId)));
 }
 
 const relayouts = new Map<string, Promise<void>>();
@@ -431,8 +436,8 @@ export async function importUpload(fileName: string, data: Buffer, field: FieldI
         const m: NewPaper | null = found?.meta ?? (arxivId ? await arxiv.getById(arxivId).catch(() => null) : null);
         if (m && paperIdByDoi(doi) === paperId) {
           db.prepare(
-            `UPDATE papers SET title=?, authors=?, year=?, journal=?, volume=?, issue=?, pages=?, doi=?, openalex_id=?, pmid=?, pmcid=?, abstract=?, updated_at=? WHERE id=?`,
-          ).run(m.title, JSON.stringify(m.authors ?? []), m.year ?? null, m.journal ?? null, m.volume ?? null, m.issue ?? null, m.pages ?? null, doi, m.openalex_id ?? null, m.pmid ?? null, m.pmcid ?? null, m.abstract ?? null, now(), paperId);
+            `UPDATE papers SET title=CASE WHEN title=? THEN ? ELSE title END, authors=?, year=?, journal=?, volume=?, issue=?, pages=?, doi=?, openalex_id=?, pmid=?, pmcid=?, abstract=?, updated_at=? WHERE id=?`,
+          ).run(title, m.title, JSON.stringify(m.authors ?? []), m.year ?? null, m.journal ?? null, m.volume ?? null, m.issue ?? null, m.pages ?? null, doi, m.openalex_id ?? null, m.pmid ?? null, m.pmcid ?? null, m.abstract ?? null, now(), paperId);
         }
       }
       await ingestPdf(paperId, ctx, extracted);

@@ -3,21 +3,21 @@
 /* Theme: light by default; data-theme="dark" (resolved by state/theme.ts) switches tokens. */
 :root {
   color-scheme: light;
-  --pr-canvas: #f6f7f9;
+  --pr-canvas: #f3f6f9;
   --pr-surface: #ffffff;
   --pr-raised: #ffffff;
-  --pr-sunken: #eef0f3;
-  --pr-hover: rgb(20 23 28 / 0.05);
-  --pr-line: #e3e6eb;
-  --pr-line-strong: #cfd4dc;
-  --pr-fg: #14171c;
-  --pr-fg-muted: #5b6270;
-  --pr-fg-dim: #8a919d;
+  --pr-sunken: #edf1f5;
+  --pr-hover: rgb(16 42 74 / 0.05);
+  --pr-line: #dfe5ec;
+  --pr-line-strong: #c8d1dc;
+  --pr-fg: #142033;
+  --pr-fg-muted: #56637a;
+  --pr-fg-dim: #8792a5;
   --pr-accent: #0077b6;
   --pr-accent-fg: #ffffff;
-  --pr-accent-soft: rgb(0 119 182 / 0.1);
+  --pr-accent-soft: rgb(0 119 182 / 0.09);
   --pr-focus: #1a9bdc;
-  --pr-inverse: #14171c;
+  --pr-inverse: #142033;
   --pr-inverse-fg: #ffffff;
   --pr-success: #0f9d58;
   --pr-success-soft: rgb(15 157 88 / 0.1);
@@ -28,27 +28,28 @@
   --pr-effort: #a8812f;
   --pr-effort-max: #ed682c;
   --pr-scrim: rgb(15 18 24 / 0.32);
-  --pr-shadow-pop: 0 12px 32px -8px rgb(15 18 24 / 0.18), 0 0 0 1px rgb(15 18 24 / 0.04);
+  --pr-shadow-pop: 0 12px 32px -8px rgb(16 32 56 / 0.18), 0 0 0 1px rgb(16 32 56 / 0.04);
+  --pr-shadow-card: 0 1px 2px rgb(16 32 56 / 0.04), 0 2px 8px -2px rgb(16 32 56 / 0.06);
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --pr-canvas: #15181f;
-  --pr-surface: #1c2026;
-  --pr-raised: #21242c;
-  --pr-sunken: #111419;
+  --pr-canvas: #11151c;
+  --pr-surface: #171c24;
+  --pr-raised: #1d232d;
+  --pr-sunken: #0d1117;
   --pr-hover: rgb(255 255 255 / 0.06);
-  --pr-line: #2e3138;
-  --pr-line-strong: #3d414a;
-  --pr-fg: #e6e8ee;
-  --pr-fg-muted: #98a0b0;
-  --pr-fg-dim: #687080;
+  --pr-line: #29303b;
+  --pr-line-strong: #3a4250;
+  --pr-fg: #e6eaf1;
+  --pr-fg-muted: #9aa5b6;
+  --pr-fg-dim: #687386;
   --pr-accent: #4ed4ff;
   --pr-accent-fg: #0b1015;
   --pr-accent-soft: rgb(78 212 255 / 0.14);
   --pr-focus: #23b2ff;
   --pr-inverse: #e8ecf4;
-  --pr-inverse-fg: #15181f;
+  --pr-inverse-fg: #11151c;
   --pr-success: #06ee7a;
   --pr-success-soft: rgb(6 238 122 / 0.14);
   --pr-warning: #f5c46b;
@@ -59,6 +60,7 @@
   --pr-effort-max: #ff843f;
   --pr-scrim: rgb(5 7 10 / 0.55);
   --pr-shadow-pop: 0 16px 48px -12px rgb(0 0 0 / 0.6);
+  --pr-shadow-card: 0 1px 2px rgb(0 0 0 / 0.3);
 }
 
 @theme inline {
@@ -87,6 +89,7 @@
   --color-effort: var(--pr-effort);
   --color-scrim: var(--pr-scrim);
   --shadow-pop: var(--pr-shadow-pop);
+  --shadow-card: var(--pr-shadow-card);
 }
 
 @theme {

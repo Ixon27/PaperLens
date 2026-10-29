@@ -242,7 +242,7 @@ export function SelectionTip() {
               <button className={btn} onClick={close}>
                 취소
               </button>
-              <button className="rounded-lg bg-inverse px-2.5 py-1 text-[12.5px] font-medium text-inverse-fg transition-[transform,opacity] duration-150 hover:opacity-90 active:scale-[0.97]" onClick={() => void saveHighlight(memoColor, note.trim() || undefined)}>
+              <button className="rounded-lg bg-accent px-2.5 py-1 text-[12.5px] font-medium text-accent-fg transition-[transform,opacity] duration-150 hover:opacity-90 active:scale-[0.97]" onClick={() => void saveHighlight(memoColor, note.trim() || undefined)}>
                 저장
               </button>
             </div>

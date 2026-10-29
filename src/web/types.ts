@@ -42,9 +42,27 @@ export interface PaperDto {
   pageCount: number | null;
   field: FieldId | null;
   fieldSuggested: FieldId | null;
+  createdAt: string;
+  /** null until the paper is first opened. */
+  lastOpenedAt: string | null;
   status: PaperStatus;
   job: JobDto | null;
   abstract?: string | null;
+}
+
+/** `GET /api/sync/status` */
+export interface SyncStatusDto {
+  available: boolean;
+  configured: boolean;
+  connected: boolean;
+  email: string | null;
+  syncing: boolean;
+  loginPending: boolean;
+  lastSyncAt: string | null;
+  lastError: string | null;
+  conflicts: number;
+  devices: number;
+  changedAt: string | null;
 }
 
 /** One translated sentence and the source characters `text[start, end)` it translates. */

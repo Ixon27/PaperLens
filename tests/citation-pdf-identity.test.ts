@@ -32,8 +32,8 @@ import { db, getPaper, putArtifact } from '../src/server/db';
 import { startJob } from '../src/server/jobs';
 import { extractBlocks } from '../src/server/pdf/extract';
 import { getBuffer } from '../src/server/services/http';
-import { getById } from '../src/server/services/openalex';
-import { pdfIdentityConflict, retryPaperPdf } from '../src/server/tasks/import';
+import { getByDoi, getById } from '../src/server/services/openalex';
+import { importUpload, pdfIdentityConflict, retryPaperPdf } from '../src/server/tasks/import';
 import { getRelated } from '../src/server/tasks/related';
 
 const title = 'Attention Is All You Need';
@@ -101,6 +101,29 @@ describe('cited PDF identity', () => {
     const ctx = await runJob();
     expect(getPaper('paper')?.pdf_file).toBe('attached.pdf');
     expect(ctx.progress).toHaveBeenCalledWith(1, '이미 PDF가 첨부되어 있습니다');
+  });
+
+  it('keeps a user-edited title when an uploaded PDF finishes fetching metadata', async () => {
+    const uploadedDoi = '10.1101/2020.01.01.000001';
+    vi.mocked(extractBlocks).mockResolvedValue(result(`doi: ${uploadedDoi}`, 'Initial title'));
+    vi.mocked(getByDoi).mockResolvedValue({ id: 'W2', title: 'Published title' });
+
+    const { paperId } = await importUpload('upload.pdf', Buffer.from('%PDF test'), null);
+    db.prepare('UPDATE papers SET title=? WHERE id=?').run('My paper name', paperId);
+    await runJob();
+
+    expect(getPaper(paperId)?.title).toBe('My paper name');
+    expect(getPaper(paperId)?.openalex_id).toBe('W2');
+  });
+
+  it('uses the published title when the uploaded title was not edited', async () => {
+    vi.mocked(extractBlocks).mockResolvedValue(result('doi: 10.1101/2020.01.01.000001', 'Initial title'));
+    vi.mocked(getByDoi).mockResolvedValue({ id: 'W2', title: 'Published title' });
+
+    const { paperId } = await importUpload('upload.pdf', Buffer.from('%PDF test'), null);
+    await runJob();
+
+    expect(getPaper(paperId)?.title).toBe('Published title');
   });
 
   it('annotates cached DOI-free related works by OpenAlex ID', async () => {

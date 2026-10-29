@@ -39,8 +39,8 @@ function Header() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   return (
-    <header className="app-header app-drag relative z-40 flex h-11 shrink-0 items-center gap-2 border-b border-line bg-surface/80 px-3 backdrop-blur-md">
-      <Link href="/" className="text-[14px] font-semibold tracking-tight text-fg">
+    <header className="app-header app-drag relative z-40 flex h-12 shrink-0 items-center gap-2 border-b border-line bg-surface/85 px-3 backdrop-blur-md">
+      <Link href="/" className="rounded-lg py-1 pr-2 text-[15px] font-semibold tracking-tight text-fg">
         PaperLens
       </Link>
       <div className="flex-1" />

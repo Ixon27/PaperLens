@@ -1,4 +1,5 @@
 import type { ServerType } from '@hono/node-server';
+import { createBridgeClient, setDesktopBridge } from '../server/desktop-bridge';
 import type { BackendMessage, ParentMessage } from './protocol';
 
 const parent = process.parentPort;
@@ -7,12 +8,15 @@ const parentPid = Number(process.env.PAPER_READER_PARENT_PID);
 let server: ServerType | undefined;
 let cancelJobs: (() => Promise<void>) | undefined;
 let shutdownLlm: (() => Promise<void>) | undefined;
+let stopSync: (() => Promise<void>) | undefined;
 let stopping = false;
 let started = false;
 
 function send(message: BackendMessage) {
   parent?.postMessage(message);
 }
+
+const bridgeClient = createBridgeClient(send);
 
 async function shutdown(code = 0) {
   if (stopping) return;
@@ -23,9 +27,10 @@ async function shutdown(code = 0) {
   try {
     const stoppedLlm = shutdownLlm?.();
     const cancelled = cancelJobs?.();
+    const stoppedSync = stopSync?.();
     server?.close();
     if (server && 'closeAllConnections' in server) server.closeAllConnections();
-    await Promise.all([stoppedLlm, cancelled]);
+    await Promise.all([stoppedLlm, cancelled, stoppedSync]);
   } catch (error) {
     console.error('백엔드 종료 실패:', error);
     code = 1;
@@ -49,14 +54,16 @@ async function start(token: string) {
   started = true;
   if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('잘못된 세션 인증 정보');
   // Import only after the parent has provided the environment and session token.
-  const [{ startServer }, { cancelAllJobs }, llm] = await Promise.all([
+  const [{ startServer }, { cancelAllJobs }, llm, sync] = await Promise.all([
     import('../server/app'),
     import('../server/jobs'),
     import('../server/llm/index'),
+    import('../server/sync/service'),
   ]);
   cancelJobs = cancelAllJobs;
   shutdownLlm = llm.shutdownLlm;
   if (stopping) return;
+  setDesktopBridge(bridgeClient.bridge);
   server = await startServer({ port: 0, token, production: true });
   if (stopping) {
     server.close();
@@ -66,6 +73,8 @@ async function start(token: string) {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('백엔드 포트를 확인하지 못했습니다.');
   send({ type: 'ready', port: address.port });
+  stopSync = sync.stopSyncScheduler;
+  sync.startSyncScheduler();
 }
 
 function fatal(error: unknown) {
@@ -76,8 +85,12 @@ function fatal(error: unknown) {
 }
 
 parent.on('message', ({ data }: { data: ParentMessage }) => {
-  if (data.type === 'shutdown') void shutdown();
-  else if (data.type === 'start') void start(data.token).catch(fatal);
+  switch (data.type) {
+    case 'shutdown': void shutdown(); break;
+    case 'start': void start(data.token).catch(fatal); break;
+    case 'bridgeResult': bridgeClient.handleResult(data); break;
+    default: data satisfies never;
+  }
 });
 process.on('SIGTERM', () => { void shutdown(); });
 process.on('SIGINT', () => { void shutdown(); });

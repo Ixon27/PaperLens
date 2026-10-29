@@ -10,6 +10,7 @@ import { openalexRoutes } from './openalex';
 import { papers } from './papers';
 import { settings } from './settings';
 import { terms } from './terms';
+import { sync } from './sync';
 import { threads } from './threads';
 import { translation } from './translation';
 
@@ -28,3 +29,4 @@ api.route('/', citations);
 api.route('/', terms);
 api.route('/', openalexRoutes);
 api.route('/', exportRoutes);
+api.route('/', sync);

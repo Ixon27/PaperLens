@@ -2,7 +2,7 @@ import { ArrowUp, Square } from 'lucide-react';
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
 
 const ROUND_BTN =
-  'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-inverse text-inverse-fg transition-[opacity,transform] duration-150 hover:opacity-90 active:scale-[0.95] disabled:opacity-30';
+  'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-accent-fg transition-[opacity,transform] duration-150 hover:opacity-90 active:scale-[0.95] disabled:opacity-30';
 
 /** Question box with a model chip (`picker`) and send/stop. Enter sends; Shift+Enter and IME composition do not. */
 export function ChatComposer({

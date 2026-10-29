@@ -1,13 +1,14 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell, utilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, safeStorage, session, shell, utilityProcess } from 'electron';
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions, UtilityProcess } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defaultDataDir, resolveStoragePaths } from '../shared/storage';
-import { IPC } from './protocol';
-import type { BackendMessage, DesktopInfo } from './protocol';
+import { IPC, parseBridgeRequest } from './protocol';
+import type { BackendMessage, BridgeRequest, BridgeResult, DesktopInfo, SecretName } from './protocol';
 
 const isMac = process.platform === 'darwin';
 // The data folder keeps its original `paper-reader` name, so a renamed app opens the same library.
@@ -42,7 +43,7 @@ let quitting = false;
 let mayQuit = false;
 let failureShown = false;
 
-const themeBackground = () => nativeTheme.shouldUseDarkColors ? '#15181f' : '#f6f7f9';
+const themeBackground = () => nativeTheme.shouldUseDarkColors ? '#11151c' : '#f3f6f9';
 const themeFile = join(userData, 'theme.json');
 type ThemeSource = 'system' | 'light' | 'dark';
 const isThemeSource = (value: unknown): value is ThemeSource => value === 'system' || value === 'light' || value === 'dark';
@@ -76,12 +77,91 @@ function isAppUrl(value: string) {
   catch { return false; }
 }
 
-function openExternal(value: string) {
+/** The validated href, or null for anything the OS must not open (other schemes, credentials, the app itself). */
+function externalUrl(value: string, protocols: readonly string[] = ['https:', 'http:', 'obsidian:']) {
   try {
     const url = new URL(value);
-    if (!['https:', 'http:', 'obsidian:'].includes(url.protocol) || url.username || url.password || isAppUrl(value)) return;
-    void shell.openExternal(url.href).catch(error => log(`외부 링크 열기 실패: ${String(error)}`));
-  } catch { /* Malformed links must never reach the OS. */ }
+    if (!protocols.includes(url.protocol) || url.username || url.password || isAppUrl(value)) return null;
+    return url.href;
+  } catch { return null; /* Malformed links must never reach the OS. */ }
+}
+
+function openExternal(value: string) {
+  const href = externalUrl(value);
+  if (href) void shell.openExternal(href).catch(error => log(`외부 링크 열기 실패: ${String(error)}`));
+}
+
+const secretsDir = join(userData, 'secrets');
+const secretFile = (name: SecretName) => join(secretsDir, `${name}.bin`);
+
+function requireEncryption() {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('이 컴퓨터에서 로그인 정보를 안전하게 저장할 수 없습니다');
+}
+
+async function loadSecret(name: SecretName): Promise<string | null> {
+  let data: Buffer;
+  try { data = await readFile(secretFile(name)); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+  requireEncryption();
+  try { return safeStorage.decryptString(data); }
+  catch {
+    // An unreadable secret (keychain reset, copied profile) only means the user reconnects.
+    await rm(secretFile(name), { force: true });
+    log(`저장된 로그인 정보(${name})를 복호화하지 못해 삭제했습니다`);
+    return null;
+  }
+}
+
+async function saveSecret(name: SecretName, value: string) {
+  requireEncryption();
+  const encrypted = safeStorage.encryptString(value);
+  await mkdir(secretsDir, { recursive: true, mode: 0o700 });
+  await chmod(secretsDir, 0o700);
+  const file = secretFile(name);
+  const temp = `${file}.${process.pid}.tmp`;
+  await writeFile(temp, encrypted, { mode: 0o600 });
+  await chmod(temp, 0o600);
+  await rename(temp, file);
+}
+
+async function runBridge(request: BridgeRequest): Promise<string | null> {
+  switch (request.op) {
+    case 'loadSecret': return loadSecret(request.name);
+    case 'saveSecret': await saveSecret(request.name, request.value); return null;
+    case 'clearSecret': await rm(secretFile(request.name), { force: true }); return null;
+    case 'openExternal': {
+      const href = externalUrl(request.url, ['https:', 'http:']);
+      if (!href) throw new Error('열 수 없는 주소입니다');
+      // shell errors may echo the URL (with an OAuth query), so neither it nor the error text is logged.
+      try { await shell.openExternal(href); }
+      catch { throw new Error('브라우저를 열지 못했습니다'); }
+      return null;
+    }
+    default: return request satisfies never;
+  }
+}
+
+async function handleBridge(child: UtilityProcess, message: unknown) {
+  const parsed = parseBridgeRequest(message);
+  let result: BridgeResult;
+  if (!parsed.ok) {
+    if (parsed.id === null) { log('잘못된 데스크톱 브리지 요청을 무시했습니다'); return; }
+    result = { type: 'bridgeResult', id: parsed.id, ok: false, error: parsed.error };
+  } else {
+    const { id, op } = parsed.request;
+    try {
+      result = { type: 'bridgeResult', id, ok: true, value: await runBridge(parsed.request) };
+    } catch (error) {
+      const text = error instanceof Error ? error.message : '알 수 없는 오류';
+      log(`데스크톱 브리지 ${op} 실패: ${text}`);
+      result = { type: 'bridgeResult', id, ok: false, error: text };
+    }
+  }
+  try { child.postMessage(result); }
+  catch { /* The backend already exited. */ }
 }
 
 function checkSender(event: IpcMainInvokeEvent) {
@@ -132,7 +212,7 @@ async function showWindow() {
     title: 'PaperLens', width: 1440, height: 960, minWidth: 960, minHeight: 640,
     backgroundColor: themeBackground(), show: false,
     // macOS: the app's header is the title bar. Windows keeps its native frame and window buttons.
-    ...(isMac ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 15 } } : {}),
+    ...(isMac ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 17 } } : {}),
     webPreferences: {
       preload: join(dirname(fileURLToPath(import.meta.url)), 'preload.cjs'),
       session: session.fromPartition('paper-reader'),
@@ -187,6 +267,10 @@ async function startBackend() {
   child.on('exit', code => {
     if (backend === child) backend = null;
     if (!quitting && backendOrigin) void fail(new Error(`백엔드가 종료되었습니다 (코드 ${code}).`));
+  });
+  // Bridge requests may arrive before `ready` (e.g. sync starting right after the listener opens).
+  child.on('message', (message: BackendMessage) => {
+    if (message?.type === 'bridge') void handleBridge(child, message);
   });
   const ready = Promise.withResolvers<number>();
   const timeout = setTimeout(() => finish(new Error('백엔드 시작 시간이 초과되었습니다.')), 30_000);

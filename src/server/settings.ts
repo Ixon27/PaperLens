@@ -107,3 +107,20 @@ export function saveSettings(patch: unknown): Settings {
   );
   return merged;
 }
+
+let lastEngine: Engine | null | undefined;
+
+/** The engine of the most recent successful AI response; null before the first one. */
+export function getLastEngine(): Engine | null {
+  if (lastEngine === undefined) {
+    const row = db.prepare("SELECT value FROM settings WHERE key='lastEngine'").get() as { value: string } | undefined;
+    lastEngine = row?.value === 'claude' || row?.value === 'codex' ? row.value : null;
+  }
+  return lastEngine;
+}
+
+export function rememberLastEngine(engine: Engine): void {
+  if (getLastEngine() === engine) return;
+  db.prepare("INSERT INTO settings(key,value) VALUES('lastEngine',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(engine);
+  lastEngine = engine;
+}

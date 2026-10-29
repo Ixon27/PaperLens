@@ -86,12 +86,12 @@ const BTN_CORE =
 const BTN_BASE = `${BTN_CORE} active:scale-[0.97]`;
 
 export const btnCls = `${BTN_BASE} h-8 rounded-lg border border-line-strong bg-surface px-3 text-[13px] text-fg hover:bg-hover`;
-export const primaryBtnCls = `${BTN_BASE} h-8 rounded-lg bg-inverse px-3 text-[13px] font-medium text-inverse-fg hover:opacity-90`;
+export const primaryBtnCls = `${BTN_BASE} h-8 rounded-lg bg-accent px-3 text-[13px] font-medium text-accent-fg hover:opacity-90`;
 export const ghostBtnCls = `${BTN_BASE} h-8 rounded-lg px-2.5 text-[13px] text-fg-muted hover:bg-hover hover:text-fg`;
 export const dangerBtnCls = `${BTN_BASE} h-8 rounded-lg bg-danger px-3 text-[13px] font-medium text-white hover:opacity-90`;
 export const smallDangerBtnCls = `${BTN_BASE} h-7 rounded-md bg-danger px-3 text-[12px] font-medium text-white hover:opacity-90`;
 export const smallBtnCls = `${BTN_BASE} h-7 rounded-md border border-line-strong bg-surface px-2 text-[12px] text-fg hover:bg-hover`;
-export const smallPrimaryBtnCls = `${BTN_BASE} h-7 rounded-md bg-inverse px-2.5 text-[12px] font-medium text-inverse-fg hover:opacity-90`;
+export const smallPrimaryBtnCls = `${BTN_BASE} h-7 rounded-md bg-accent px-2.5 text-[12px] font-medium text-accent-fg hover:opacity-90`;
 export const smallGhostBtnCls = `${BTN_BASE} h-7 rounded-md px-2 text-[12px] text-fg-muted hover:bg-hover hover:text-fg`;
 export const iconBtnCls = `${BTN_CORE} h-8 w-8 rounded-lg text-fg-muted hover:bg-hover hover:text-fg active:scale-[0.95]`;
 export const smallIconBtnCls = `${BTN_CORE} h-7 w-7 shrink-0 rounded-md text-fg-muted hover:bg-hover hover:text-fg active:scale-[0.95]`;
