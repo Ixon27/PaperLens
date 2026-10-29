@@ -1,3 +1,4 @@
+import dagre from '@dagrejs/dagre';
 import { Controls, Handle, Position, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node, type NodeProps } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -15,6 +16,7 @@ import { usePaper } from '../state/paper';
 import { useJob } from '../state/useJob';
 import { useViewer } from '../state/viewer';
 import type { LineageDto, LineageNodeDto, LineageRole } from '../types';
+import { useGraphFullscreen } from './useGraphFullscreen';
 
 type Response = { lineage: LineageDto | null; by: MadeBy | null; updatedAt: string | null };
 type FlowNode = Node<{ work: LineageNodeDto }, 'lineage'>;
@@ -29,11 +31,11 @@ const roleLabels = Object.values(ROLES).map((role) => role.label);
 
 function WorkCard({ data }: NodeProps<FlowNode>) {
   const work = data.work;
-  return <div className={`w-[200px] rounded-md border border-line border-l-4 bg-surface p-2 shadow-sm ${work.role ? ROLES[work.role].border : 'border-l-line-strong'} ${work.side === 'paper' ? 'ring-2 ring-accent' : ''}`}>
+  return <div className={`h-[116px] w-[240px] rounded-md border border-line border-l-4 bg-surface p-2 shadow-sm ${work.role ? ROLES[work.role].border : 'border-l-line-strong'} ${work.side === 'paper' ? 'ring-2 ring-accent' : ''}`}>
     <Handle type="target" position={Position.Left} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />
-    <div className="text-[11px] text-fg-dim">{work.year ?? '연도 미상'}</div>
-    <div className="line-clamp-2 text-[13px] font-semibold leading-snug text-fg">{work.title}</div>
-    <div className="truncate text-[11px] text-fg-muted">{work.authors}</div>
+    <div className="flex items-center justify-between gap-1 text-[11px] text-fg-dim"><span>{work.year ?? '연도 미상'}</span><span className="truncate">{work.side === 'paper' ? '현재 논문' : work.role ? ROLES[work.role].label : ''}</span></div>
+    <div title={work.title} className="line-clamp-3 break-words text-[13px] font-semibold leading-snug text-fg">{work.title}</div>
+    <div title={work.authors} className="truncate text-[11px] text-fg-muted">{work.authors}</div>
     <Handle type="source" position={Position.Right} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />
   </div>;
 }
@@ -67,6 +69,8 @@ function LineageInner() {
   const [selected, setSelected] = useState<string | null>(null);
   const [strand, setStrand] = useState<number | null>(null);
   const graphRef = useRef<HTMLDivElement>(null);
+  const { expanded, setExpanded, container, button } = useGraphFullscreen();
+  useEffect(() => { if (tab !== 'lineage') setExpanded(false); }, [tab, setExpanded]);
   const load = useCallback(async () => {
     try {
       setResult(await api<Response>(`/api/papers/${paper.id}/lineage`));
@@ -100,11 +104,18 @@ function LineageInner() {
     return strand === null ? null : new Set(lineage?.strands[strand]?.ids ?? []);
   }, [lineage, selected, strand]);
   const nodes = useMemo<FlowNode[]>(() => {
-    const years = [...new Set(visible.map((n) => n.year))].sort((a, b) => a === null ? (b === null ? 0 : -1) : b === null ? 1 : a - b);
-    return years.flatMap((year, column) => visible.filter((n) => n.year === year)
-      .sort((a, b) => (b.citedBy ?? -1) - (a.citedBy ?? -1))
-      .map((work, row) => ({ id: work.id, type: 'lineage' as const, position: { x: column * 230, y: row * 110 }, data: { work }, style: { opacity: highlighted && !highlighted.has(work.id) ? 0.35 : 1 } })));
-  }, [visible, highlighted]);
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir: 'LR', nodesep: 36, ranksep: 110, edgesep: 24 });
+    g.setDefaultEdgeLabel(() => ({}));
+    for (const work of visible) g.setNode(work.id, { width: 240, height: 116 });
+    const ids = new Set(visible.map((work) => work.id));
+    for (const edge of lineage?.edges ?? []) if (ids.has(edge.from) && ids.has(edge.to)) g.setEdge(edge.from, edge.to);
+    dagre.layout(g);
+    return visible.map((work) => {
+      const point = g.node(work.id) as { x: number; y: number };
+      return { id: work.id, type: 'lineage' as const, position: { x: point.x - 120, y: point.y - 58 }, data: { work }, style: { opacity: highlighted && !highlighted.has(work.id) ? 0.35 : 1 } };
+    });
+  }, [visible, highlighted, lineage]);
   const edges = useMemo<Edge[]>(() => {
     const ids = new Set(visible.map((n) => n.id));
     return (lineage?.edges ?? []).filter((e) => ids.has(e.from) && ids.has(e.to)).map((e) => ({
@@ -124,7 +135,7 @@ function LineageInner() {
     observer.observe(graphRef.current);
     fit();
     return () => { observer.disconnect(); window.clearTimeout(timer); };
-  }, [tab, pdfMode, lineage, active, fitView]);
+  }, [tab, pdfMode, expanded, lineage, active, fitView]);
   const generate = async () => {
     if (lineage && !confirm('계보를 다시 만들까요? 기존 결과는 새로 바뀝니다.')) return;
     try {
@@ -136,10 +147,12 @@ function LineageInner() {
   };
   const chosen = visible.find((n) => n.id === selected);
   const big = pdfMode === 'full-panel';
-  return <div className="flex h-full flex-col overflow-y-auto">
+  return <div ref={container} role={expanded ? 'dialog' : undefined} aria-modal={expanded || undefined} aria-label={expanded ? '논문 계보 전체 화면' : undefined}
+    className={expanded ? 'figure-fullscreen no-drag fixed inset-0 z-[100] flex flex-col overflow-y-auto bg-canvas text-fg' : 'flex h-full flex-col overflow-y-auto'}>
     <div className="shrink-0 border-b border-line px-3 py-2">
       {lineage && <div className="flex flex-wrap items-center gap-2">
         <button className={smallBtnCls} aria-pressed={big} onClick={() => setPdfMode(big ? 'split' : 'full-panel')}>크게 보기</button>
+        <button ref={button} className={smallBtnCls} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? '닫기 (Esc)' : '전체 화면'}</button>
         <button className={smallBtnCls} disabled={job.running} onClick={() => void generate()}>다시 만들기</button>
         <span className="rounded-md bg-sunken px-2 py-1 text-[11px] text-fg-muted">{lineage.source === 'openalex' ? 'OpenAlex' : '추출한 참고문헌'}</span>
         <ModelBadge by={result?.by ?? null} />
@@ -152,16 +165,16 @@ function LineageInner() {
       <p>이 논문이 기대고 있는 선행 연구와 이어간 후속 연구를 실제 인용 데이터로 그립니다.</p>
       <button className={`${primaryBtnCls} mt-3`} onClick={() => void generate()}>계보 만들기</button>
     </div>}
-    {lineage && <div className={`flex flex-col gap-3 p-3 ${big ? 'min-h-0 flex-1' : ''}`}>
-      <Markdown text={lineage.summary} />
-      <div><div className="mb-1 text-[12px] text-fg-muted">선행 연구 역할</div><ToggleChips items={roleLabels} active={active} onToggle={(item) => setActive((old) => { const next = new Set(old); if (next.has(item)) next.delete(item); else next.add(item); return next; })} /></div>
-      <div ref={graphRef} className={`relative w-full rounded-lg border border-line ${big ? 'min-h-[480px] flex-1' : 'h-[420px]'}`}>
+    {lineage && <div className={`flex flex-col gap-3 p-3 ${big || expanded ? 'min-h-0 flex-1' : ''}`}>
+      <div className={expanded ? 'max-h-24 shrink-0 overflow-y-auto' : ''}><Markdown text={lineage.summary} /></div>
+      <div className="shrink-0"><div className="mb-1 text-[12px] text-fg-muted">선행 연구 역할</div><ToggleChips items={roleLabels} active={active} onToggle={(item) => setActive((old) => { const next = new Set(old); if (next.has(item)) next.delete(item); else next.add(item); return next; })} /></div>
+      <div ref={graphRef} className={`relative w-full rounded-lg border border-line ${big || expanded ? 'min-h-[300px] flex-1' : 'h-[420px]'}`}>
         <ReactFlow colorMode="system" nodes={nodes} edges={edges} nodeTypes={nodeTypes} nodesDraggable={false} nodesConnectable={false} onNodeClick={(_, node) => { setSelected(node.id); setStrand(null); }} onPaneClick={() => { setSelected(null); setStrand(null); }} fitView fitViewOptions={{ padding: 0.15 }} minZoom={0.1} proOptions={{ hideAttribution: true }}>
           <Controls showInteractive={false} />
         </ReactFlow>
       </div>
       {lineage.strands.length > 0 && <div className="flex flex-wrap items-center gap-1"><span className="mr-1 text-[12px] text-fg-muted">연구 흐름</span>{lineage.strands.map((s, i) => <button key={`${s.label}-${i}`} className={smallBtnCls} aria-pressed={strand === i} onClick={() => { setSelected(null); setStrand((old) => old === i ? null : i); }}>{s.label}</button>)}</div>}
-      {chosen && <Detail key={chosen.id} node={chosen} />}
+      {chosen && <div className={expanded ? 'max-h-48 shrink-0 overflow-y-auto' : ''}><Detail key={chosen.id} node={chosen} /></div>}
     </div>}
   </div>;
 }

@@ -14,8 +14,8 @@ type Profile = 'quick' | 'heavy';
 type Patch = { engine?: EngineId; claude?: Partial<Settings['claude']>; codex?: Partial<Settings['codex']> };
 
 const PROFILES: { id: Profile; title: string; subtitle: string }[] = [
-  { id: 'quick', title: '빠른 작업', subtitle: '번역 · 요약 · 토론 · 용어' },
-  { id: 'heavy', title: '깊은 작업', subtitle: 'Deep Research · 마인드맵' },
+  { id: 'quick', title: '빠른 작업', subtitle: '번역 · 요약 · 핵심 용어 · 용어 설명 · 대화 · 참고문헌 추출 · 분야 판별 · 내보내기 이름' },
+  { id: 'heavy', title: '깊은 작업', subtitle: 'Deep Research · 추가 분석 · 마인드맵 · 인터랙티브 그림 · 연구 계보' },
 ];
 
 function applyPatch(s: Settings, p: Patch): Settings {
@@ -101,6 +101,8 @@ export function AiPicker() {
   const presence = usePresence(open, 120);
   const wrapRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLButtonElement>(null);
+  const heavyPillRef = useRef<HTMLButtonElement>(null);
+  const openedFromRef = useRef<Profile>('quick');
   const savedRef = useRef<Settings | null>(null);
   const pendingRef = useRef<Patch[]>([]);
   const savingRef = useRef(false);
@@ -168,7 +170,7 @@ export function AiPicker() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       setOpen(false);
-      pillRef.current?.focus();
+      (openedFromRef.current === 'heavy' ? heavyPillRef : pillRef).current?.focus();
     };
     document.addEventListener('pointerdown', onDown);
     window.addEventListener('keydown', onKey);
@@ -222,23 +224,29 @@ export function AiPicker() {
 
   return (
     <div ref={wrapRef} className="relative inline-flex items-center rounded-full border border-line bg-raised">
-      <EffortControl label="Quick" value={profiles.quickEffort} levels={levelsOf(profiles.quickModel)} onChange={(v) => selectEffort('quick', v)} />
+      <span className="pl-2 text-[12px] font-medium text-fg-muted">{engineLabel(engine)}</span>
+      <EffortControl label="빠른 작업" value={profiles.quickEffort} levels={levelsOf(profiles.quickModel)} onChange={(v) => selectEffort('quick', v)} />
       <button
         ref={pillRef}
-        className="no-drag inline-flex h-8 max-w-[360px] items-center gap-2 rounded-full pr-2 pl-1 text-[13px] transition-colors duration-150 hover:text-fg"
+        className="no-drag max-w-[100px] truncate rounded-lg py-1 text-[12px] font-medium text-fg hover:bg-hover"
+        aria-label={`빠른 작업 모델: ${quickLabel} · 모델 선택`}
         aria-haspopup="dialog"
-        aria-expanded={open}
-        title={`빠른 작업: ${quickLabel} · ${effortLabel(profiles.quickEffort)}\n깊은 작업: ${heavyLabel} · ${effortLabel(profiles.heavyEffort)}`}
-        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open && expanded === 'quick'}
+        title={`빠른 작업: ${quickLabel} · ${effortLabel(profiles.quickEffort)}`}
+        onClick={() => { openedFromRef.current = 'quick'; setExpanded('quick'); setOpen((o) => !(o && expanded === 'quick')); }}
+      >{quickLabel}</button>
+      <span aria-hidden="true" className="px-1 text-fg-dim">·</span>
+      <EffortControl label="깊은 작업" value={profiles.heavyEffort} levels={levelsOf(profiles.heavyModel)} onChange={(v) => selectEffort('heavy', v)} />
+      <button
+        ref={heavyPillRef}
+        className="no-drag inline-flex max-w-[120px] items-center gap-1 rounded-lg py-1 pr-2 text-[12px] font-medium text-fg hover:bg-hover"
+        aria-label={`깊은 작업 모델: ${heavyLabel} · 모델 선택`}
+        aria-haspopup="dialog"
+        aria-expanded={open && expanded === 'heavy'}
+        title={`깊은 작업: ${heavyLabel} · ${effortLabel(profiles.heavyEffort)}`}
+        onClick={() => { openedFromRef.current = 'heavy'; setExpanded('heavy'); setOpen((o) => !(o && expanded === 'heavy')); }}
       >
-        <span className="font-medium text-fg-muted">{engineLabel(engine)}</span>
-        <span className="truncate font-medium text-accent">{quickLabel}</span>
-        {heavyLabel !== quickLabel && (
-          <>
-            <span className="text-fg-dim">·</span>
-            <span className="truncate text-fg-muted">{heavyLabel}</span>
-          </>
-        )}
+        <span className="truncate">{heavyLabel}</span>
         <ChevronDown size={14} className={`shrink-0 text-fg-muted transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
       {presence.mounted && (
@@ -268,6 +276,7 @@ export function AiPicker() {
                 onEffort={(v) => selectEffort(p.id, v)}
               />
             ))}
+          <p className="px-3 pt-1 text-[11.5px] text-fg-dim">대화·설명 카드는 기본적으로 빠른 작업 모델을 사용하며, 대화에서 별도로 선택한 모델이 있으면 그 설정을 따릅니다.</p>
           </div>
           <div className="mt-2 flex items-center justify-between gap-2 border-t border-line px-2 pt-2">
             <span className="min-w-0 truncate text-[11.5px] text-fg-dim" title={status}>

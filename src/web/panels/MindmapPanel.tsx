@@ -14,7 +14,7 @@ import {
   type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import { smallBtnCls } from '../components/Dialog';
 import { JobBar } from '../components/JobBar';
@@ -25,6 +25,7 @@ import { usePaper } from '../state/paper';
 import { useJob } from '../state/useJob';
 import { useViewer } from '../state/viewer';
 import type { ArtifactDto } from '../types';
+import { useGraphFullscreen } from './useGraphFullscreen';
 
 type MindKind = 'background' | 'question' | 'method' | 'finding' | 'limitation' | 'concept';
 
@@ -43,11 +44,13 @@ interface MindmapContent {
   positions: Positions;
 }
 
-type MindData = { label: string; kind: MindKind | null; bullets: string[]; pages: number[]; isRoot: boolean };
+type MindData = { label: string; kind: MindKind | null; bullets: string[]; pages: number[]; isRoot: boolean; side: 'left' | 'right' };
 type MindFlowNode = Node<MindData, 'mind'>;
 
 const NODE_W = 260;
-const nodeHeight = (bullets: number) => 44 + 20 * bullets;
+// Each text block is capped at three lines; reserve a full row for each page chip.
+const nodeHeight = (data: MindData) => 76 + 60 * data.bullets.length + 28 * data.pages.length;
+const CloseFullscreen = createContext<() => void>(() => {});
 
 const KIND_BORDER: Record<MindKind, string> = {
   background: 'border-l-slate-400',
@@ -62,58 +65,81 @@ const KIND_BORDER: Record<MindKind, string> = {
 function flatten(root: MindNode): { nodes: MindFlowNode[]; edges: Edge[] } {
   const nodes: MindFlowNode[] = [];
   const edges: Edge[] = [];
-  const walk = (n: MindNode, id: string, parent: string | null) => {
+  const walk = (n: MindNode, id: string, parent: string | null, side: 'left' | 'right') => {
     nodes.push({
       id,
       type: 'mind',
       position: { x: 0, y: 0 },
-      data: { label: n.label, kind: n.kind ?? null, bullets: n.bullets ?? [], pages: n.pages ?? [], isRoot: parent === null },
+      data: { label: n.label, kind: n.kind ?? null, bullets: n.bullets ?? [], pages: n.pages ?? [], isRoot: parent === null, side },
     });
-    if (parent !== null) edges.push({ id: `${parent}->${id}`, source: parent, target: id, type: 'smoothstep' });
-    n.children?.forEach((c, i) => walk(c, `${id}.${i}`, id));
+    if (parent !== null) edges.push({ id: `${parent}->${id}`, source: parent, target: id, sourceHandle: side, type: 'smoothstep' });
+    n.children?.forEach((c, i) => walk(c, `${id}.${i}`, id, parent === null && i % 2 ? 'left' : side));
   };
-  walk(root, '0', null);
+  walk(root, '0', null, 'right');
   return { nodes, edges };
 }
 
-/** dagre LR layout; stored positions win over the computed ones. */
+/** Lay out each branch on its own side of the root; stored positions always win. */
 function layout(nodes: MindFlowNode[], edges: Edge[], positions: Positions): MindFlowNode[] {
-  const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: 'LR', nodesep: 24, ranksep: 90 });
-  g.setDefaultEdgeLabel(() => ({}));
-  for (const n of nodes) g.setNode(n.id, { width: NODE_W, height: nodeHeight(n.data.bullets.length) });
-  for (const e of edges) g.setEdge(e.source, e.target);
-  dagre.layout(g);
+  const root = nodes[0];
+  const computed = new Map<string, { x: number; y: number }>();
+  computed.set(root.id, { x: 0, y: 0 });
+  for (const side of ['left', 'right'] as const) {
+    const branch = nodes.filter((n) => n.id === root.id || n.data.side === side);
+    const ids = new Set(branch.map((n) => n.id));
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir: side === 'left' ? 'RL' : 'LR', nodesep: 30, ranksep: 90 });
+    g.setDefaultEdgeLabel(() => ({}));
+    for (const n of branch) g.setNode(n.id, { width: NODE_W, height: nodeHeight(n.data) });
+    for (const e of edges) if (ids.has(e.source) && ids.has(e.target)) g.setEdge(e.source, e.target);
+    dagre.layout(g);
+    const origin = g.node(root.id) as { x: number; y: number };
+    for (const n of branch) {
+      if (n.id === root.id) continue;
+      const p = g.node(n.id) as { x: number; y: number };
+      computed.set(n.id, { x: p.x - origin.x, y: p.y - origin.y + (nodeHeight(root.data) - nodeHeight(n.data)) / 2 });
+    }
+  }
+  // Partial saved layouts can coexist with new nodes without moving saved nodes.
+  const occupied = nodes.filter((n) => positions[n.id]).map((n) => ({ ...positions[n.id], height: nodeHeight(n.data) }));
   return nodes.map((n) => {
-    const stored = positions[n.id];
-    if (stored) return { ...n, position: stored };
-    const p = g.node(n.id) as { x: number; y: number };
-    return { ...n, position: { x: p.x - NODE_W / 2, y: p.y - nodeHeight(n.data.bullets.length) / 2 } };
+    if (positions[n.id]) return { ...n, position: positions[n.id] };
+    const p = { ...computed.get(n.id)! };
+    const height = nodeHeight(n.data);
+    while (true) {
+      const collision = occupied.find((o) => p.x < o.x + NODE_W + 24 && p.x + NODE_W + 24 > o.x && p.y < o.y + o.height + 24 && p.y + height + 24 > o.y);
+      if (!collision) break;
+      p.y = collision.y + collision.height + 24;
+    }
+    occupied.push({ ...p, height });
+    return { ...n, position: p };
   });
 }
 
 function MindCard({ data }: NodeProps<MindFlowNode>) {
   const { jumpToPage } = useViewer();
+  const closeFullscreen = useContext(CloseFullscreen);
   const border = data.kind ? KIND_BORDER[data.kind] : data.isRoot ? 'border-l-fg' : 'border-l-line-strong';
   return (
     <div className={`rounded-md border border-line border-l-4 bg-surface px-2.5 py-1.5 shadow-sm ${border}`} style={{ width: NODE_W }}>
-      {!data.isRoot && <Handle type="target" position={Position.Left} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />}
-      <div className={`font-bold leading-snug text-fg ${data.isRoot ? 'text-[14px]' : 'text-[13px]'}`}>{data.label}</div>
+      {!data.isRoot && <Handle type="target" position={data.side === 'left' ? Position.Right : Position.Left} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />}
+      <div title={data.label} className={`line-clamp-3 break-words font-bold leading-snug text-fg ${data.isRoot ? 'text-[14px]' : 'text-[13px]'}`}>{data.label}</div>
       {data.bullets.length > 0 && (
         <ul className="mt-0.5 list-disc pl-4 text-[11.5px] leading-[20px] text-fg-muted">
           {data.bullets.map((b, i) => (
-            <li key={i}>{b}</li>
+            <li key={i} title={b} className="line-clamp-3 break-words">{b}</li>
           ))}
         </ul>
       )}
       {data.pages.length > 0 && (
         <div className="nodrag mt-1 flex flex-wrap gap-y-0.5">
           {data.pages.map((p) => (
-            <PageChip key={p} page={p} onJump={jumpToPage} />
+            <PageChip key={p} page={p} onJump={(page) => { closeFullscreen(); jumpToPage(page); }} />
           ))}
         </div>
       )}
-      <Handle type="source" position={Position.Right} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />
+      {(data.isRoot || data.side === 'left') && <Handle id="left" type="source" position={Position.Left} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />}
+      {(data.isRoot || data.side === 'right') && <Handle id="right" type="source" position={Position.Right} className="!h-1.5 !w-1.5 !border-0 !bg-line-strong" />}
     </div>
   );
 }
@@ -138,10 +164,14 @@ function MindmapInner() {
   const [artifact, setArtifact] = useState<ArtifactDto<MindmapContent> | null>(null);
   const [loaded, setLoaded] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const { expanded, setExpanded, container, button } = useGraphFullscreen();
+
+  useEffect(() => { if (tab !== 'mindmap') setExpanded(false); }, [tab, setExpanded]);
 
   const fitSoon = useCallback(() => {
     setTimeout(() => void fitView({ padding: 0.15 }), 60);
   }, [fitView]);
+  useEffect(() => { fitSoon(); }, [expanded, fitSoon]);
 
   const applyArtifact = useCallback(
     (a: ArtifactDto<MindmapContent> | null) => {
@@ -231,9 +261,10 @@ function MindmapInner() {
   const big = pdfMode === 'full-panel';
 
   return (
-    <div className="flex h-full flex-col">
+    <div ref={container} role={expanded ? 'dialog' : undefined} aria-modal={expanded || undefined} aria-label={expanded ? '마인드맵 전체 화면' : undefined}
+      className={expanded ? 'figure-fullscreen no-drag fixed inset-0 z-[100] flex flex-col bg-canvas text-fg' : 'flex h-full flex-col'}>
       <div className="flex shrink-0 flex-col gap-2 border-b border-line px-3 py-2">
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <button className={btn} disabled={job.running} onClick={() => void generate()}>
             {artifact ? '다시 생성' : '생성'}
           </button>
@@ -251,6 +282,9 @@ function MindmapInner() {
           >
             크게 보기
           </button>
+          <button ref={button} className={btn} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
+            {expanded ? '닫기 (Esc)' : '전체 화면'}
+          </button>
           {artifact && (
             <span className="ml-auto flex min-w-0 items-center gap-1 truncate text-[11px] text-fg-dim">
               <ModelBadge by={artifact.by} />
@@ -262,6 +296,7 @@ function MindmapInner() {
       </div>
       <div className="relative min-h-0 flex-1">
         {artifact ? (
+          <CloseFullscreen.Provider value={() => setExpanded(false)}>
           <ReactFlow
             colorMode="system"
             nodes={nodes}
@@ -279,6 +314,7 @@ function MindmapInner() {
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable />
           </ReactFlow>
+          </CloseFullscreen.Provider>
         ) : (
           loaded &&
           !job.running && (

@@ -42,7 +42,9 @@ export interface ImportState {
   progress: number | null;
   busy: boolean;
   error: string | null;
+  message: string | null;
   start(doi: string): Promise<void>;
+  retry(paperId: string): Promise<void>;
 }
 
 /** `POST /api/papers/import` for a DOI, following the import job's progress inline. */
@@ -51,26 +53,41 @@ export function useImportPaper(initialLibId: string | null): ImportState {
   const [progress, setProgress] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const unsubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => setLibId(initialLibId), [initialLibId]);
   useEffect(() => () => unsubRef.current?.(), []);
 
-  const start = useCallback(async (doi: string) => {
+  const run = useCallback(async (input: { doi: string } | { paperId: string }) => {
     setBusy(true);
     setError(null);
+    setMessage(null);
     try {
-      const r = await api<ImportResult>('/api/papers/import', { method: 'POST', json: { input: doi } });
+      let r = 'doi' in input
+        ? await api<ImportResult>('/api/papers/import', { method: 'POST', json: { input: input.doi } })
+        : await api<ImportResult>(`/api/papers/${input.paperId}/pdf/fetch`, { method: 'POST' });
       setLibId(r.paperId);
+      if ('doi' in input && r.duplicate && !r.jobId) {
+        r = await api<ImportResult>(`/api/papers/${r.paperId}/pdf/fetch`, { method: 'POST' });
+      }
+      if (!r.jobId) setMessage('이미 PDF가 첨부되어 있습니다');
       if (r.jobId) {
         setProgress(0);
         unsubRef.current?.();
         unsubRef.current = subscribeJob(r.jobId, (event, data) => {
-          if (event === 'snapshot' || event === 'progress') setProgress((data as { progress: number }).progress);
-          else if (event === 'done') setProgress(null);
-          else if (event === 'error') {
+          if (event === 'snapshot' || event === 'progress') {
+            const state = data as { progress: number; message?: string | null };
+            setProgress(state.progress);
+            if (state.message) setMessage(state.message);
+          } else if (event === 'done') {
             setProgress(null);
-            setError((data as { message?: string }).message ?? '가져오기 실패');
+            const result = data as { message?: string | null };
+            setMessage(result.message ?? '가져오기 완료');
+          } else if (event === 'error') {
+            setProgress(null);
+            const result = data as { message?: string };
+            setError(result.message ?? '가져오기 실패');
           }
         });
       }
@@ -81,7 +98,9 @@ export function useImportPaper(initialLibId: string | null): ImportState {
     }
   }, []);
 
-  return { libId, progress, busy, error, start };
+  const start = useCallback((doi: string) => run({ doi }), [run]);
+  const retry = useCallback((paperId: string) => run({ paperId }), [run]);
+  return { libId, progress, busy, error, message, start, retry };
 }
 
 /** `smallBtnCls` with accent text, for links that leave the current view. */
@@ -91,13 +110,19 @@ const accentLinkBtn =
 /** `가져오기` / progress / `열기` controls shared by reference cards and related-paper rows. */
 export function LibraryButton({ imp, doi, label, onNeedDoi }: { imp: ImportState; doi: string | null; label: string; onNeedDoi?: () => Promise<string | null> }) {
   const [noDoi, setNoDoi] = useState(false);
+  const [lookupError, setLookupError] = useState<string | null>(null);
   if (imp.libId) {
     return (
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex flex-wrap items-center gap-1.5">
         {imp.progress !== null && <span className="text-[11px] tabular-nums text-fg-muted">가져오는 중 {Math.round(imp.progress * 100)}%</span>}
+        {imp.error && <span className="text-[11px] text-danger">{imp.error}</span>}
+        {imp.message && <span className="text-[11px] text-fg-muted">{imp.message}</span>}
         <Link href={`/paper/${imp.libId}`} className={accentLinkBtn}>
           열기
         </Link>
+        <button className={smallBtnCls} disabled={imp.busy || imp.progress !== null} onClick={() => void imp.retry(imp.libId!)}>
+          PDF 찾기·다시 시도
+        </button>
       </span>
     );
   }
@@ -108,7 +133,14 @@ export function LibraryButton({ imp, doi, label, onNeedDoi }: { imp: ImportState
         className={smallBtnCls}
         disabled={disabled}
         onClick={async () => {
-          const d = doi ?? (onNeedDoi ? await onNeedDoi() : null);
+          setLookupError(null);
+          let d: string | null;
+          try {
+            d = doi ?? (onNeedDoi ? await onNeedDoi() : null);
+          } catch (e) {
+            setLookupError(e instanceof Error ? e.message : String(e));
+            return;
+          }
           if (!d) {
             setNoDoi(true);
             return;
@@ -116,9 +148,10 @@ export function LibraryButton({ imp, doi, label, onNeedDoi }: { imp: ImportState
           await imp.start(d);
         }}
       >
-        {noDoi || (!doi && !onNeedDoi) ? 'DOI 없음' : imp.busy ? '가져오는 중…' : label}
+        {noDoi || (!doi && !onNeedDoi) ? '식별자 없음' : imp.busy ? '가져오는 중…' : label}
       </button>
       {imp.error && <span className="text-[11px] text-danger">{imp.error}</span>}
+      {lookupError && <span className="text-[11px] text-danger">{lookupError}</span>}
     </span>
   );
 }
@@ -185,7 +218,7 @@ export function RefCard({ entry }: { entry: RefEntryDto }) {
           imp={impShown}
           doi={doi}
           label="라이브러리에 추가"
-          onNeedDoi={entry.title ? async () => (await lookup())?.doi ?? null : undefined}
+          onNeedDoi={entry.title ? async () => { const found = await lookup(); if (!found) throw new Error('논문 검색에 실패했습니다. 다시 시도하세요.'); return found.openalexId || found.doi || null; } : undefined}
         />
         {doi && (
           <a className={accentLinkBtn} href={`https://doi.org/${doi}`} target="_blank" rel="noreferrer">

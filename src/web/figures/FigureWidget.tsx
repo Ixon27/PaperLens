@@ -1,6 +1,6 @@
 import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
-import { FIGURE_KIND_LABELS, type FigureSpec } from '../../shared/figure-spec';
+import type { FigureSpec } from '../../shared/figure-spec';
 import { smallBtnCls } from '../components/Dialog';
 import { SourceChip } from '../components/SourceChip';
 import { CompareWidget, TableWidget } from './dataWidgets';
@@ -104,9 +104,8 @@ export function FigureWidget({ spec, imageUrl }: { spec: FigureSpec; imageUrl: s
             <div className={`space-y-1 ${expanded ? 'sticky top-0 z-10 border-b border-line bg-canvas pb-3' : ''}`}>
               <div className="flex flex-wrap items-center gap-1.5">
                 <h4 className="mr-auto min-w-0 text-[14px] font-semibold text-fg">{spec.title}</h4>
-                <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-fg-muted">{FIGURE_KIND_LABELS[spec.kind]}</span>
                 {spec.approx && <span className="rounded-full bg-warning-soft px-2 py-0.5 text-[11px] text-warning" title="그림에서 눈으로 읽은 값이라 원문과 다를 수 있습니다">근사값</span>}
-                <button ref={expandButton} type="button" className={`${smallBtnCls} ${expanded ? 'no-drag min-h-10 px-3' : ''}`} aria-expanded={expanded}
+                <button ref={expandButton} type="button" className={`${smallBtnCls} shrink-0 ${expanded ? 'no-drag min-h-8' : ''}`} aria-expanded={expanded}
                   aria-label={expanded ? '전체 화면 닫기 (Esc)' : '위젯 전체 화면으로 확대'}
                   title={expanded ? '전체 화면 닫기 (Esc)' : '위젯 전체 화면으로 확대'}
                   onClick={() => setExpanded((value) => !value)}>

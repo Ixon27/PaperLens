@@ -33,6 +33,7 @@ export function ExplainCard({
   style,
   size,
   maxWidth,
+  viewport,
   onResize,
   onMinimize,
   onDeleted,
@@ -49,6 +50,7 @@ export function ExplainCard({
   size: CardSize;
   /** The page width minus margins. */
   maxWidth: number;
+  viewport: HTMLElement;
   onResize(size: CardSize): void;
   onMinimize(): void;
   onDeleted(id: string): void;
@@ -66,6 +68,9 @@ export function ExplainCard({
   const { items, busy } = chat;
   const [loaded, setLoaded] = useState(false);
   const [live, setLive] = useState<CardSize | null>(null);
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ pointerId: number; x: number; y: number; left: number; top: number } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [dontAsk, setDontAsk] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -103,6 +108,67 @@ export function ExplainCard({
     startedRef.current = true;
     if (!saved) writeCard(autoStartImage);
   }, [loaded]);
+
+  // A minimized card remains mounted for streaming, but its temporary placement does not.
+  useLayoutEffect(() => {
+    if (hidden) {
+      dragRef.current = null;
+      setPosition(null);
+    }
+  }, [hidden]);
+
+  const constrain = (left: number, top: number) => {
+    const card = cardRef.current;
+    if (!card) return { left, top };
+    const rect = card.getBoundingClientRect();
+    const pane = viewport.getBoundingClientRect();
+    const minX = Math.max(0, pane.left) + 8;
+    const maxX = Math.min(window.innerWidth, pane.right) - 8;
+    const minY = Math.max(0, pane.top) + 8;
+    const maxY = Math.min(window.innerHeight, pane.bottom) - 8;
+    const currentLeft = card.offsetLeft;
+    const currentTop = card.offsetTop;
+    const x = rect.left + left - currentLeft;
+    const y = rect.top + top - currentTop;
+    return {
+      left: left + clamp(x, minX, Math.max(minX, maxX - rect.width)) - x,
+      top: top + clamp(y, minY, Math.max(minY, maxY - rect.height)) - y,
+    };
+  };
+
+  useEffect(() => {
+    if (hidden || !position) return;
+    const adjust = () => setPosition((p) => {
+      if (!p) return p;
+      const next = constrain(p.left, p.top);
+      return next.left === p.left && next.top === p.top ? p : next;
+    });
+    const observer = new ResizeObserver(adjust);
+    observer.observe(viewport);
+    if (cardRef.current) observer.observe(cardRef.current);
+    window.addEventListener('resize', adjust);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', adjust);
+    };
+  }, [hidden, position !== null, viewport]);
+
+  const onHeaderDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
+    const card = cardRef.current;
+    if (!card) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, left: card.offsetLeft, top: card.offsetTop };
+  };
+  const onHeaderMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    setPosition(constrain(drag.left + e.clientX - drag.x, drag.top + e.clientY - drag.y));
+  };
+  const endDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId === e.pointerId) dragRef.current = null;
+  };
 
   useLayoutEffect(() => {
     const el = bodyRef.current;
@@ -177,11 +243,12 @@ export function ExplainCard({
 
   return (
     <div
+      ref={cardRef}
       role="dialog"
       aria-label={`설명: ${title}`}
       hidden={hidden}
       className="pr-tip absolute flex flex-col overflow-hidden rounded-2xl border border-line bg-raised shadow-pop"
-      style={{ ...style, width: shown.w, height: shown.h }}
+      style={{ ...style, ...position, width: shown.w, height: shown.h, maxHeight: Math.max(0, Math.min(viewport.clientHeight, window.innerHeight) - 16) }}
       onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
@@ -191,7 +258,14 @@ export function ExplainCard({
         else onMinimize();
       }}
     >
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-3">
+      <div
+        className="flex h-11 shrink-0 cursor-grab touch-none select-none items-center gap-2 border-b border-line px-3 active:cursor-grabbing"
+        onPointerDown={onHeaderDown}
+        onPointerMove={onHeaderMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
+      >
         <Sparkles size={15} className="shrink-0 text-accent" />
         <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-fg" title={title}>
           {title}

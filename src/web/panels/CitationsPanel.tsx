@@ -24,6 +24,7 @@ interface RelatedRow {
   key: string;
   title: string;
   doi: string | null;
+  openalexId: string;
   authors: string | null;
   year: number | null;
   venue: string | null;
@@ -37,6 +38,7 @@ function fromOpenAlex(w: WorkSummaryDto): RelatedRow {
     key: w.openalexId,
     title: w.title,
     doi: w.doi,
+    openalexId: w.openalexId,
     authors: w.authors.length ? w.authors[0] + (w.authors.length > 1 ? ' et al.' : '') : null,
     year: w.year,
     venue: w.venue,
@@ -63,7 +65,7 @@ function RelatedItem({ row }: { row: RelatedRow }) {
       <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11.5px] text-fg-muted">
         {[row.authors, row.year, row.venue, `인용 ${row.citedBy}`].filter((x) => x !== null && x !== '').join(' · ')}
         <span className="ml-auto">
-          <LibraryButton imp={imp} doi={row.doi} label="가져오기" />
+          <LibraryButton imp={imp} doi={row.openalexId || row.doi} label="가져오기" />
         </span>
       </div>
     </li>

@@ -110,6 +110,7 @@ export function ExplainLayer({ viewer, host }: { viewer: PDFViewer; host: HTMLEl
     for (const name of LAYOUT_EVENTS) viewer.eventBus.on(name, bump);
     const ro = new ResizeObserver(bump);
     if (viewer.viewer) ro.observe(viewer.viewer);
+    ro.observe(viewer.container);
     bump();
     return () => {
       for (const name of LAYOUT_EVENTS) viewer.eventBus.off(name, bump);
@@ -219,7 +220,7 @@ export function ExplainLayer({ viewer, host }: { viewer: PDFViewer; host: HTMLEl
     const spot = spots.get(anchorId(e.anchor));
     if (!spot) return null;
     // Never wider than the page or the pane, so the header buttons stay reachable in a narrow pane.
-    const maxWidth = Math.min(spot.pageWidth, viewer.container.clientWidth) - 16;
+    const maxWidth = Math.max(0, Math.min(spot.pageWidth, viewer.container.clientWidth) - 16);
     const w = Math.min(size.w, maxWidth);
     return { left: clamp(spot.left - 12, spot.pageLeft + 8, spot.pageLeft + spot.pageWidth - w - 8), top: spot.top + 32, maxWidth };
   };
@@ -277,6 +278,7 @@ export function ExplainLayer({ viewer, host }: { viewer: PDFViewer; host: HTMLEl
             style={{ left: box.left, top: box.top }}
             size={size}
             maxWidth={box.maxWidth}
+            viewport={viewer.container}
             onResize={onResize}
             onMinimize={minimize}
             onDeleted={onDeleted}

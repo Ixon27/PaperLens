@@ -13,7 +13,7 @@ export interface OpenAlexWork {
   abstract_inverted_index?: Record<string, number[]> | null;
   primary_location?: { source?: { display_name?: string } | null } | null;
   best_oa_location?: { pdf_url?: string | null } | null;
-  locations?: { pdf_url?: string | null }[];
+  locations?: { pdf_url?: string | null; is_oa?: boolean }[];
   primary_topic?: { id: string; display_name: string } | null;
   ids?: { pmid?: string; pmcid?: string };
   keywords?: { display_name: string }[];
@@ -57,7 +57,7 @@ export function toSummary(w: OpenAlexWork): WorkSummary {
     venue: w.primary_location?.source?.display_name ?? null,
     citedBy: w.cited_by_count ?? 0,
     abstract: rebuildAbstract(w.abstract_inverted_index),
-    oaPdf: w.best_oa_location?.pdf_url ?? null,
+    oaPdf: w.best_oa_location?.pdf_url ?? w.locations?.find((location) => location.is_oa && location.pdf_url)?.pdf_url ?? null,
     pmid: w.ids?.pmid?.replace(/^.*\//, '') ?? null,
     pmcid: w.ids?.pmcid ? 'PMC' + w.ids.pmcid.replace(/^.*\//, '').replace(/^PMC/i, '') : null,
     keywords: (w.keywords ?? []).map((k) => k.display_name),

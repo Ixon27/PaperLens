@@ -8,7 +8,7 @@ import { latestJobs, snapshotOf, type JobRow } from '../jobs';
 import * as openalex from '../services/openalex';
 import { HttpError } from '../http-error';
 import { orderSections } from '../tasks/analysis';
-import { attachPdf, ensureCurrentLayout, importFromInput, importUpload, normalizeDoi, paperIdByDoi } from '../tasks/import';
+import { attachPdf, ensureCurrentLayout, importFromInput, importUpload, normalizeDoi, paperIdByDoi, retryPaperPdf } from '../tasks/import';
 import { ensureTranslationSentences } from '../tasks/translation-alignment';
 import { suggestField } from '../tasks/suggest-field';
 import type { MadeBy } from '../../shared/models';
@@ -87,9 +87,11 @@ papers.get('/papers', (c) => {
 
 papers.post('/papers/import', async (c) => {
   const { input, field } = await c.req.json<{ input?: string; field?: unknown }>();
-  if (!input?.trim()) throw new HttpError(400, 'DOI나 arXiv 링크가 아닙니다');
+  if (!input?.trim()) throw new HttpError(400, 'DOI, arXiv 또는 OpenAlex 링크가 아닙니다');
   return c.json(await importFromInput(input, fieldInput(field)));
 });
+
+papers.post('/papers/:id/pdf/fetch', (c) => c.json(retryPaperPdf(c.req.param('id'))));
 
 papers.post('/papers/upload', async (c) => {
   const body = await c.req.parseBody({ all: true });

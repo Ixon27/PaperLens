@@ -14,7 +14,7 @@ import { getBuffer } from '../services/http';
 import * as openalex from '../services/openalex';
 import * as unpaywall from '../services/unpaywall';
 
-export type ImportInput = { kind: 'doi'; doi: string } | { kind: 'arxiv'; id: string };
+export type ImportInput = { kind: 'doi'; doi: string } | { kind: 'arxiv'; id: string } | { kind: 'openalex'; id: string };
 
 const DOI_RE = /10\.\d{4,9}\/[^\s"<>]+/i;
 const ARXIV_DOI = /10\.48550\/arxiv\.(\d{4}\.\d{4,5}|[a-z][a-z-]*(?:\.[A-Za-z]{2})?\/\d{7})/i;
@@ -35,15 +35,17 @@ export function parseImportInput(s: string): ImportInput {
   try {
     input = decodeURIComponent(s.trim());
   } catch {
-    throw new HttpError(400, 'DOI나 arXiv 링크가 아닙니다');
+    throw new HttpError(400, 'DOI, arXiv 또는 OpenAlex 링크가 아닙니다');
   }
+  const work = /^(?:https?:\/\/openalex\.org\/)?(W\d+)$/i.exec(input);
+  if (work) return { kind: 'openalex', id: work[1].toUpperCase() };
   const arxivDoi = ARXIV_DOI.exec(input);
   if (arxivDoi) return { kind: 'arxiv', id: arxivDoi[1] };
   const doi = findDoi(input);
   if (doi) return { kind: 'doi', doi };
   const ax = ARXIV_ID.exec(input);
   if (ax) return { kind: 'arxiv', id: ax[1] };
-  throw new HttpError(400, 'DOI나 arXiv 링크가 아닙니다');
+  throw new HttpError(400, 'DOI, arXiv 또는 OpenAlex 링크가 아닙니다');
 }
 
 export function arxivYear(id: string): number {
@@ -133,7 +135,7 @@ export async function ingestPdf(paperId: string, ctx: JobCtx, extracted?: Extrac
   const result = extracted ?? await extractBlocks(pdfPath(paperId));
   storeBlocks(paperId, result);
   const paragraphs = result.blocks.filter((b) => b.kind === 'body').length;
-  ctx.progress(1, result.blocks.length ? `${result.pageCount}쪽 · 문단 ${paragraphs}개` : '텍스트 레이어가 없는 PDF(스캔본)입니다 — AI 기능을 쓸 수 없습니다');
+  ctx.progress(1, result.blocks.length ? `PDF 저장 완료 · ${result.pageCount}쪽 · 문단 ${paragraphs}개` : 'PDF 저장 완료 — 텍스트 레이어가 없는 스캔본이므로 AI 기능을 쓸 수 없습니다');
 }
 
 const relayouts = new Map<string, Promise<void>>();
@@ -217,9 +219,127 @@ async function metadataForDoi(doi: string): Promise<{ meta: NewPaper; pdfUrls: s
   const meta: NewPaper = cr
     ? { ...cr, doi, openalex_id: s?.openalexId ?? null, pmid: s?.pmid ?? null, pmcid: s?.pmcid ?? null, abstract: cr.abstract ?? s?.abstract ?? null }
     : { title: s!.title, authors: s!.authors.map(splitName), year: s!.year, journal: s!.venue, abstract: s!.abstract, doi, openalex_id: s!.openalexId, pmid: s!.pmid, pmcid: s!.pmcid };
-  const pdfUrls = [...new Set([oa?.best_oa_location?.pdf_url, ...(oa?.locations ?? []).map((location) => location.pdf_url)].filter((url): url is string => !!url))];
+  const pdfUrls = oa ? openAlexPdfUrls(oa) : [];
   return { meta, pdfUrls };
 }
+/** Only provider-designated open-access locations are candidates. */
+export function openAlexPdfUrls(work: openalex.OpenAlexWork): string[] {
+  return [...new Set([work.best_oa_location?.pdf_url, ...(work.locations ?? []).filter((location) => location.is_oa).map((location) => location.pdf_url)]
+    .filter((url): url is string => !!url))];
+}
+export function paperIdByOpenAlex(id: string | null | undefined): string | null {
+  if (!id) return null;
+  const short = openalex.shortId(id);
+  const row = db.prepare('SELECT id FROM papers WHERE openalex_id=? OR openalex_id=?').get(short, `https://openalex.org/${short}`) as { id: string } | undefined;
+  return row?.id ?? null;
+}
+
+
+function duplicateResult(paperId: string): ImportResult {
+  const job = activeJob(paperId, 'import');
+  return { paperId, duplicate: true, ...(job ? { jobId: job.id } : {}) };
+}
+
+/**
+ * Reject only when the first page identifies a different DOI and offers no evidence
+ * of the expected title. DOI differences alone are common across paper versions.
+ * Missing text, short titles and unlabelled references are inconclusive.
+ */
+export function pdfIdentityConflict(paper: { title: string; doi: string | null }, extracted: ExtractionResult): boolean {
+  if (!paper.doi) return false;
+  const page = extracted.blocks.filter((block) => block.page === 1).map((block) => block.text).join(' ');
+  if (page.length < 120) return false;
+  const tokens = (text: string) => text.normalize('NFKD').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const titleWords = [...new Set(tokens(paper.title).filter((word) => word.length >= 2))];
+  if (titleWords.length < 3) return false;
+  const pageWords = new Set(tokens(`${extracted.title ?? ''} ${page}`));
+  if (titleWords.filter((word) => pageWords.has(word)).length / titleWords.length >= 0.6) return false;
+  const front = page.slice(0, 2000);
+  const labelled = [...front.matchAll(/\bdoi\s*[:：]\s*(?:https?:\/\/(?:dx\.)?doi\.org\/)?(10\.\d{4,9}\/[^\s"<>]+)/gi)]
+    .map((match) => normalizeDoi(match[1]));
+  return labelled.length > 0 && !labelled.includes(normalizeDoi(paper.doi));
+}
+
+async function fetchOpenPdf(paperId: string, ctx: JobCtx, pdfUrls: string[], doi: string | null, pmcid: string | null, lookupFailed = false): Promise<void> {
+  ctx.progress(0.1, 'PDF 찾는 중');
+  const candidates: (() => Promise<string | null>)[] = [
+    ...pdfUrls.map((url) => async () => url),
+    ...(doi ? [() => unpaywall.oaPdf(doi).catch(() => { lookupFailed = true; return null; })] : []),
+    async () => (pmcid ? `https://europepmc.org/articles/${pmcid}?pdf=render` : null),
+  ];
+  let attempted = false;
+  let identityMismatch = false;
+  for (const next of candidates) {
+    ctx.signal.throwIfAborted();
+    const url = await next();
+    if (!url) continue;
+    attempted = true;
+    ctx.progress(0.3, 'PDF 내려받는 중');
+    const buf = await downloadPdf(url);
+    if (!buf) continue;
+    const tmp = join(PATHS.tmp, `candidate-${nanoid()}.pdf`);
+    let extracted: ExtractionResult;
+    try {
+      writeFileSync(tmp, buf);
+      extracted = await extractBlocks(tmp);
+      ctx.signal.throwIfAborted();
+      const paper = getPaper(paperId);
+      if (!paper) throw new Error('논문을 찾을 수 없습니다');
+      if (paper.pdf_file) {
+        ctx.progress(1, '이미 PDF가 첨부되어 있습니다');
+        return;
+      }
+      if (pdfIdentityConflict({ title: paper.title, doi: paper.doi ?? doi }, extracted)) {
+        identityMismatch = true;
+        continue;
+      }
+      renameSync(tmp, pdfPath(paperId));
+    } catch (error) {
+      ctx.signal.throwIfAborted();
+      if (!getPaper(paperId)) throw error;
+      continue;
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+    await ingestPdf(paperId, ctx, extracted);
+    return;
+  }
+  ctx.signal.throwIfAborted();
+  if (identityMismatch) throw new Error('다른 논문으로 보이는 PDF를 제외했습니다 — 논문을 열어 올바른 PDF를 직접 첨부하세요');
+  if (attempted) throw new Error('공개 PDF를 내려받지 못했습니다 — 논문을 열어 PDF를 직접 첨부하세요');
+  ctx.progress(1, lookupFailed
+    ? '메타데이터만 저장됨 — PDF 검색에 실패했습니다. 논문을 열어 PDF를 첨부하세요'
+    : '메타데이터만 저장됨 — 공개 PDF를 찾지 못했습니다. 논문을 열어 PDF를 첨부하세요');
+}
+
+/** Retry OA discovery for an existing metadata-only paper, sharing any active import. */
+export function retryPaperPdf(paperId: string): ImportResult {
+  const paper = getPaper(paperId);
+  if (!paper) throw new HttpError(404, '논문을 찾을 수 없습니다');
+  const running = activeJob(paperId, 'import');
+  if (running) return { paperId, duplicate: true, jobId: running.id };
+  if (paper.pdf_file) return { paperId, duplicate: true };
+  const jobId = startJob(paperId, 'import', async (ctx) => {
+    ctx.progress(0.1, '공개 PDF 찾는 중');
+    let work: openalex.OpenAlexWork | null = null;
+    let lookupFailed = false;
+    const attempt = async (fn: () => Promise<openalex.OpenAlexWork | null>) => {
+      try { return await fn(); } catch { lookupFailed = true; return null; }
+    };
+    if (paper.openalex_id) work = await attempt(() => openalex.getById(paper.openalex_id!));
+    if (!work && paper.doi) work = await attempt(() => openalex.getByDoi(paper.doi!));
+    if (!work && paper.title) {
+      const found = await attempt(() => openalex.search(paper.title));
+      if (found && openalex.titleKey(found.title ?? found.display_name ?? '') === openalex.titleKey(paper.title)) work = found;
+    }
+    const summary = work ? openalex.toSummary(work) : null;
+    const urls = work ? openAlexPdfUrls(work) : [];
+    if (paper.arxiv_id) urls.push(`https://arxiv.org/pdf/${paper.arxiv_id}`);
+    await fetchOpenPdf(paperId, ctx, urls, paper.doi ?? summary?.doi ?? null, paper.pmcid ?? summary?.pmcid ?? null, lookupFailed);
+  });
+  return { paperId, duplicate: true, jobId };
+}
+
 
 export interface ImportResult {
   paperId: string;
@@ -227,40 +347,33 @@ export interface ImportResult {
   duplicate?: boolean;
 }
 
-/** DOI / arXiv import: metadata synchronously (so the paper exists for navigation), PDF in a job. */
+/** Metadata is stored synchronously; PDF retrieval and extraction run in a job. */
 export async function importFromInput(raw: string, field: FieldId | null): Promise<ImportResult> {
   const input = parseImportInput(raw);
+  if (input.kind === 'openalex') {
+    const existing = paperIdByOpenAlex(input.id);
+    if (existing) return duplicateResult(existing);
+    const work = await openalex.getById(input.id);
+    if (!work) throw new HttpError(404, 'OpenAlex에서 논문을 찾지 못했습니다');
+    const s = openalex.toSummary(work);
+    if (!s.title) throw new HttpError(404, '논문 제목을 찾지 못했습니다');
+    const duplicate = (s.doi && paperIdByDoi(s.doi)) || paperIdByOpenAlex(s.openalexId);
+    if (duplicate) return duplicateResult(duplicate);
+    const paperId = insertPaper({ title: s.title, authors: s.authors.map(splitName), year: s.year, journal: s.venue, abstract: s.abstract, doi: s.doi, openalex_id: s.openalexId, pmid: s.pmid, pmcid: s.pmcid, field });
+    const jobId = startJob(paperId, 'import', (ctx) => fetchOpenPdf(paperId, ctx, openAlexPdfUrls(work), s.doi, s.pmcid));
+    return { paperId, jobId };
+  }
   const doi = input.kind === 'doi' ? input.doi : `10.48550/arxiv.${input.id}`.toLowerCase();
   const existing = paperIdByDoi(doi);
-  if (existing) return { paperId: existing, duplicate: true };
+  if (existing) return duplicateResult(existing);
 
   if (input.kind === 'doi') {
     const found = await metadataForDoi(doi);
     if (!found) throw new HttpError(404, 'Crossref·OpenAlex에서 DOI를 찾지 못했습니다');
-    const duplicate = paperIdByDoi(doi); // another request may have imported it during the metadata fetch
-    if (duplicate) return { paperId: duplicate, duplicate: true };
+    const duplicate = paperIdByDoi(doi) ?? paperIdByOpenAlex(found.meta.openalex_id);
+    if (duplicate) return duplicateResult(duplicate);
     const paperId = insertPaper({ ...found.meta, field });
-    const pmcid = found.meta.pmcid;
-    const jobId = startJob(paperId, 'import', async (ctx) => {
-      ctx.progress(0.1, 'PDF 찾는 중');
-      const candidates: (() => Promise<string | null>)[] = [
-        ...found.pdfUrls.map((url) => async () => url),
-        () => unpaywall.oaPdf(doi).catch(() => null),
-        async () => (pmcid ? `https://europepmc.org/articles/${pmcid}?pdf=render` : null),
-      ];
-      for (const next of candidates) {
-        ctx.signal.throwIfAborted();
-        const url = await next();
-        if (!url) continue;
-        ctx.progress(0.3, 'PDF 내려받는 중');
-        const buf = await downloadPdf(url);
-        if (!buf) continue;
-        writeFileSync(pdfPath(paperId), buf);
-        await ingestPdf(paperId, ctx);
-        return;
-      }
-      ctx.progress(1, '오픈액세스 PDF를 찾지 못했습니다 — PDF를 끌어다 놓아 붙이세요');
-    });
+    const jobId = startJob(paperId, 'import', (ctx) => fetchOpenPdf(paperId, ctx, found.pdfUrls, doi, found.meta.pmcid ?? null));
     return { paperId, jobId };
   }
 
@@ -284,16 +397,10 @@ export async function importFromInput(raw: string, field: FieldId | null): Promi
     if (!ax) throw new HttpError(404, 'arXiv에서 논문을 찾지 못했습니다');
     meta = { ...ax, year: arxivYear(id) };
   }
-  const duplicate = paperIdByDoi(doi);
-  if (duplicate) return { paperId: duplicate, duplicate: true };
+  const duplicate = paperIdByDoi(doi) ?? paperIdByOpenAlex(meta.openalex_id);
+  if (duplicate) return duplicateResult(duplicate);
   const paperId = insertPaper({ ...meta, doi, arxiv_id: id, field });
-  const jobId = startJob(paperId, 'import', async (ctx) => {
-    ctx.progress(0.2, 'PDF 내려받는 중');
-    const buf = await downloadPdf(`https://arxiv.org/pdf/${id}`);
-    if (!buf) throw new Error('arXiv PDF를 내려받지 못했습니다');
-    writeFileSync(pdfPath(paperId), buf);
-    await ingestPdf(paperId, ctx);
-  });
+  const jobId = startJob(paperId, 'import', (ctx) => fetchOpenPdf(paperId, ctx, [`https://arxiv.org/pdf/${id}`], doi, null));
   return { paperId, jobId };
 }
 

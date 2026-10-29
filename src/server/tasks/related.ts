@@ -1,7 +1,7 @@
 import { getArtifact, putArtifact, type PaperRow } from '../db';
 import { HttpError } from '../http-error';
 import * as openalex from '../services/openalex';
-import { paperIdByDoi } from './import';
+import { paperIdByDoi, paperIdByOpenAlex } from './import';
 
 type Source = 'related' | 'recentCiting' | 'topCiting' | 'topic';
 
@@ -32,7 +32,7 @@ export function libraryIdForDoi(doi: string | null | undefined): string | null {
 }
 
 function annotate(raw: RelatedRaw): RelatedResponse {
-  const lib = <T extends { doi: string | null }>(items: T[]) => items.map((it) => ({ ...it, inLibrary: libraryIdForDoi(it.doi) }));
+  const lib = <T extends { doi: string | null; openalexId: string }>(items: T[]) => items.map((it) => ({ ...it, inLibrary: paperIdByOpenAlex(it.openalexId) ?? libraryIdForDoi(it.doi) }));
   return {
     fetchedAt: raw.fetchedAt,
     related: lib(raw.related),

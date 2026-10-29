@@ -183,8 +183,8 @@ export function Library() {
         <div className="rounded-[22px] border border-line bg-raised px-4 pt-3 pb-2.5 shadow-sm transition-colors duration-150 focus-within:border-line-strong">
           <input
             className="w-full bg-transparent text-[14px] text-fg outline-none placeholder:text-fg-dim"
-            placeholder="DOI·arXiv 링크를 붙여넣거나 PDF를 끌어다 놓으세요"
-            aria-label="DOI 또는 arXiv 링크"
+            placeholder="DOI·arXiv·OpenAlex 링크를 붙여넣거나 PDF를 끌어다 놓으세요"
+            aria-label="DOI, arXiv 또는 OpenAlex 링크"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -258,7 +258,7 @@ export function Library() {
                 <FileUp size={18} className="text-fg-muted" />
               </div>
               <p className="mt-3 text-[14px] text-fg">아직 논문이 없습니다</p>
-              <p className="mt-1 text-[12.5px] text-fg-muted">PDF를 이 창에 끌어다 놓거나 DOI·arXiv 링크를 붙여넣으세요.</p>
+              <p className="mt-1 text-[12.5px] text-fg-muted">PDF를 이 창에 끌어다 놓거나 DOI·arXiv·OpenAlex 링크를 붙여넣으세요.</p>
             </div>
           )
         ) : (
