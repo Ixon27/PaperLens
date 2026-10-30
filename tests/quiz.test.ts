@@ -1,18 +1,32 @@
 import { fileURLToPath } from 'node:url';
+import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LlmResult } from '../src/server/llm';
-import { appendQuizBatch, gradeQuiz, parseQuizContent, quizResponse, saveQuizDraft, submitQuizAttempt, validateQuizAnswers, validateQuizGeneration, type QuizBatch, type QuizBlock, type QuizContent } from '../src/shared/quiz';
+import { appendQuizBatch, parseQuizContent, validateQuizGeneration, type QuizBatch, type QuizBlock, type QuizContent, type QuizResponse } from '../src/shared/quiz';
 
 // Never import the real config (which creates user storage directories) or run a CLI.
 vi.mock('../src/server/config', () => ({
   PATHS: { db: ':memory:', prompts: fileURLToPath(new URL('../prompts', import.meta.url)) },
 }));
 vi.mock('../src/server/llm', () => ({ runLlm: vi.fn(), resolveModel: vi.fn(() => ({ engine: 'codex', model: 'quiz-heavy', effort: 'high' })) }));
+vi.mock('../src/server/routes/papers', () => ({
+  requirePaper: (id: string) => {
+    const paper = getPaper(id);
+    if (!paper) throw new HttpError(404, '논문을 찾을 수 없습니다');
+    return paper;
+  },
+}));
 
-import { db, getArtifact, putArtifact } from '../src/server/db';
+import { db, getArtifact, getPaper, putArtifact } from '../src/server/db';
 import { cancelJob, getJobRow, subscribeJob, type JobRow } from '../src/server/jobs';
 import { runLlm } from '../src/server/llm';
 import { readQuiz, startQuiz, writeQuiz } from '../src/server/tasks/quiz';
+import { HttpError } from '../src/server/http-error';
+import { quizRoutes } from '../src/server/routes/quiz';
+
+const app = new Hono();
+app.onError((error, c) => c.json({ error: error.message }, error instanceof HttpError ? error.status : 500));
+app.route('/api', quizRoutes);
 
 const quote = 'Experiment 1 measured resonator noise at 10 kelvin using a calibrated sensor.';
 const block: QuizBlock = { idx: 3, page: 2, text: `Methods. ${quote} Measurements were repeated.`, isRef: false };
@@ -20,10 +34,12 @@ const by = { engine: 'codex' as const, model: 'quiz-heavy', effort: 'high' };
 const generated = (prefix = 'first') => ({ questions: Array.from({ length: 10 }, (_, i) => ({ question: `${prefix} question ${i + 1}?`, choices: ['A', 'B', 'C', 'D'], correctIndex: i % 4, explanation: 'The paper describes the calibrated sensor and measurement temperature.', source: { page: 2, quote } })) });
 
 function makeBatch(prefix: string): QuizBatch {
-  return { id: prefix, createdAt: '2026-10-30T10:00:00.000Z', by, questions: validateQuizGeneration(generated(prefix), [block]).map((q, i) => ({ id: `${prefix}-${i}`, ...q })), draft: null, attempts: [] };
+  return { id: prefix, createdAt: '2026-10-30T10:00:00.000Z', by, questions: validateQuizGeneration(generated(prefix), [block]).map((q, i) => ({ id: `${prefix}-${i}`, ...q })) };
 }
 
 function finishJob(id: string): Promise<JobRow> {
+  const current = getJobRow(id)!;
+  if (current.status === 'done' || current.status === 'error') return Promise.resolve(current);
   const { promise, resolve } = Promise.withResolvers<JobRow>();
   subscribeJob(id, (event) => {
     if (event.event === 'done' || event.event === 'error') resolve(getJobRow(id)!);
@@ -100,64 +116,92 @@ describe('quiz generation boundaries and grounded evidence', () => {
   });
 });
 
-describe('answers, grading and retained history', () => {
-  it('allows null only in explicit drafts and rejects short, sparse, noninteger or out-of-range answers', () => {
-    expect(validateQuizAnswers(Array(10).fill(null), false)).toEqual(Array(10).fill(null));
-    for (const answers of [Array(9).fill(0), Array(11).fill(0), Array(10), Array(10).fill(undefined), [4, ...Array(9).fill(0)], [-1, ...Array(9).fill(0)], [1.1, ...Array(9).fill(0)], ['0', ...Array(9).fill(0)]]) {
-      expect(() => validateQuizAnswers(answers, false)).toThrow();
-    }
-    expect(() => validateQuizAnswers(Array(10).fill(null), true)).toThrow();
-  });
-
-  it('grades on the server and preserves old submissions through draft saves, appends and reattempts', () => {
-    const first = makeBatch('first');
-    let content: QuizContent = appendQuizBatch({ version: 1, batches: [] }, first);
-    const answers = first.questions.map((q) => q.correctIndex);
-    answers[0] = 1;
-    expect(gradeQuiz(first.questions, answers).score).toBe(9);
-    content = submitQuizAttempt(content, 'first', answers, 'attempt-1', '2026-10-30T11:00:00Z');
-    content = saveQuizDraft(content, 'first', [2, ...Array(9).fill(null)], '2026-10-30T12:00:00Z');
-    content = appendQuizBatch(content, makeBatch('second'));
-    expect(content.batches).toHaveLength(2);
-    expect(content.batches[0].attempts[0]).toMatchObject({ id: 'attempt-1', score: 9, answers });
-    expect(content.batches[0].draft?.answers[0]).toBe(2);
-    content = submitQuizAttempt(content, 'first', first.questions.map((q) => q.correctIndex), 'attempt-2', '2026-10-30T13:00:00Z');
-    expect(content.batches[0].attempts.map((a) => a.score)).toEqual([9, 10]);
-    expect(content.batches[0].draft).toBeNull();
-    expect(parseQuizContent(JSON.parse(JSON.stringify(content)))).toEqual(content);
-  });
-
-  it('round-trips the CLI-default Codex model and rejects tampered stored grading', () => {
+describe('question-only storage and read-boundary migration', () => {
+  it('round-trips v2 questions and CLI-default model metadata without answer state', () => {
     const batch = makeBatch('first');
     batch.by = { engine: 'codex', model: '', effort: '' };
-    const content = submitQuizAttempt({ version: 1, batches: [batch] }, batch.id, Array(10).fill(0), 'attempt', '2026-10-30');
-    expect(parseQuizContent(JSON.parse(JSON.stringify(content))).batches[0].by.model).toBe('');
-    const tampered = JSON.parse(JSON.stringify(content));
-    tampered.batches[0].attempts[0].score = 10;
-    expect(() => parseQuizContent(tampered)).toThrow('채점 결과');
+    const content: QuizContent = { version: 2, batches: [batch] };
+    expect(parseQuizContent(JSON.parse(JSON.stringify(content)))).toEqual(content);
+    expect(() => parseQuizContent({ version: 1, batches: [batch] })).toThrow();
   });
 
-  it('withholds solutions before a submission and returns persisted per-question explanations after grading', () => {
+  it('migrates v1 on GET, preserving every batch, question, ID and model while removing saved answers', async () => {
+    const batches = [makeBatch('first'), makeBatch('second')];
+    const legacy = {
+      version: 1,
+      batches: batches.map((batch) => ({
+        ...batch,
+        draft: { answers: [1, ...Array(9).fill(null)], updatedAt: '2026-10-30' },
+        attempts: [{ id: 'old-attempt', answers: Array(10).fill(0), score: 3, submittedAt: '2026-10-30' }],
+      })),
+    };
+    putArtifact('paper', 'quiz', JSON.stringify(legacy), { version: 1, imported: true }, by);
+    const response = await app.request('/api/papers/paper/quiz');
+    expect(response.status).toBe(200);
+    const expected: QuizContent = { version: 2, batches };
+    expect(await response.json()).toEqual({ quiz: expected });
+    const artifact = getArtifact('paper', 'quiz')!;
+    expect(JSON.parse(artifact.content)).toEqual(expected);
+    expect(JSON.parse(artifact.meta)).toEqual({ version: 2, imported: true });
+    expect(JSON.parse(artifact.made_by!)).toEqual(by);
+    expect(artifact.engine).toBe(by.engine);
+    const before = { ...artifact };
+    expect(readQuiz('paper')).toEqual(expected);
+    expect(getArtifact('paper', 'quiz')).toEqual(before);
+    expect(runLlm).not.toHaveBeenCalled();
+  });
+
+  it('normalizes a later v1 sync arrival even after v2 has already been read', () => {
+    writeQuiz('paper', { version: 2, batches: [makeBatch('first')] });
+    expect(readQuiz('paper')!.version).toBe(2);
+    const batches = [makeBatch('first'), makeBatch('synced')];
+    putArtifact('paper', 'quiz', JSON.stringify({ version: 1, batches: batches.map((batch) => ({ ...batch, draft: null, attempts: [] })) }), { version: 1 }, by);
+    expect(readQuiz('paper')).toEqual({ version: 2, batches });
+    expect(JSON.parse(getArtifact('paper', 'quiz')!.content)).toEqual({ version: 2, batches });
+  });
+
+  it('GET immediately includes every correct index, explanation and exact PDF source without writing answers', async () => {
     const batch = makeBatch('first');
-    const initial: QuizContent = { version: 1, batches: [batch] };
-    const question = quizResponse(initial).quiz!.batches[0].questions[0];
-    expect(question).not.toHaveProperty('correctIndex');
-    expect(question).not.toHaveProperty('explanation');
-    expect(question).not.toHaveProperty('source');
-    const graded = submitQuizAttempt(initial, 'first', Array(10).fill(0), 'attempt', '2026-10-30');
-    const dto = quizResponse(parseQuizContent(JSON.parse(JSON.stringify(graded)))).quiz!.batches[0];
-    expect(dto.attempts[0].results).toHaveLength(10);
-    expect(dto.attempts[0]).toMatchObject({ score: 3, total: 10 });
-    expect(dto.attempts[0].results[1]).toMatchObject({ selectedIndex: 0, correctIndex: 1, correct: false, explanation: batch.questions[1].explanation, source: batch.questions[1].source });
+    writeQuiz('paper', { version: 2, batches: [batch] });
+    const before = getArtifact('paper', 'quiz');
+    const response = await app.request('/api/papers/paper/quiz');
+    expect(response.status).toBe(200);
+    const result = await response.json() as QuizResponse;
+    expect(result.quiz!.batches[0].questions).toEqual(batch.questions);
+    expect(result.quiz!.batches[0].questions[0]).toMatchObject({ correctIndex: 0, explanation: batch.questions[0].explanation, source: { page: block.page, blockIdx: block.idx, quote, start: 9, end: 9 + quote.length } });
+    expect(getArtifact('paper', 'quiz')).toEqual(before);
+    expect(runLlm).not.toHaveBeenCalled();
   });
 
-  it('rejects invalid submissions and duplicate appends without changing the supplied history', () => {
-    const content: QuizContent = { version: 1, batches: [makeBatch('first')] };
+  it('exposes only the read and generate endpoints, with no answer persistence routes', async () => {
+    expect(await (await app.request('/api/papers/paper/quiz')).json()).toEqual({ quiz: null });
+    expect((await app.request('/api/papers/missing/quiz')).status).toBe(404);
+    for (const [method, path] of [['PUT', 'batches/first/draft'], ['POST', 'batches/first/attempts']]) {
+      expect((await app.request(`/api/papers/paper/quiz/${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ answers: Array(10).fill(0) }) })).status).toBe(404);
+    }
+    expect(getArtifact('paper', 'quiz')).toBeUndefined();
+    const response = await app.request('/api/papers/paper/quiz', { method: 'POST' });
+    expect(response.status).toBe(200);
+    const { jobId } = await response.json() as { jobId: string };
+    expect((await finishJob(jobId)).status).toBe('done');
+    expect(readQuiz('paper')!.batches[0].questions).toHaveLength(10);
+  });
+
+  it('rejects duplicate appends without changing any existing question batch', () => {
+    const content: QuizContent = { version: 2, batches: [makeBatch('first')] };
     const before = JSON.stringify(content);
-    expect(() => submitQuizAttempt(content, 'first', Array(10).fill(null), 'bad', 'now')).toThrow();
-    expect(() => submitQuizAttempt(content, 'missing', Array(10).fill(0), 'bad', 'now')).toThrow();
     expect(() => appendQuizBatch(content, { ...makeBatch('first'), id: 'other' })).toThrow('중복');
     expect(JSON.stringify(content)).toBe(before);
+  });
+
+  it.each([1, 2])('never overwrites a malformed v%i artifact during reading or generation', (version) => {
+    const legacy = { version, batches: [{ ...makeBatch('first'), questions: [] }] };
+    putArtifact('paper', 'quiz', JSON.stringify(legacy), { version }, by);
+    const before = getArtifact('paper', 'quiz');
+    expect(() => readQuiz('paper')).toThrow('기존 기록은 그대로');
+    expect(() => startQuiz('paper')).toThrow('기존 기록은 그대로');
+    expect(getArtifact('paper', 'quiz')).toEqual(before);
+    expect(runLlm).not.toHaveBeenCalled();
   });
 });
 
@@ -177,30 +221,32 @@ describe('quiz job persistence without real AI', () => {
     expect(vi.mocked(runLlm).mock.calls[1][0].prompt).toContain('first question 1?');
   });
 
-  it('keeps submissions and drafts saved while a generation is awaiting its result', async () => {
+  it('retains additional question batches arriving while generation awaits its result', async () => {
     const first = makeBatch('first');
-    writeQuiz('paper', { version: 1, batches: [first] });
+    writeQuiz('paper', { version: 2, batches: [first] });
     const deferred = Promise.withResolvers<LlmResult>();
     vi.mocked(runLlm).mockReturnValueOnce(deferred.promise);
     const id = startQuiz('paper');
-    // Generation is blocked in runLlm. These are the same domain operations used by the save routes.
-    writeQuiz('paper', submitQuizAttempt(readQuiz('paper')!, first.id, first.questions.map((q) => q.correctIndex), 'during-generation', '2026-10-30T14:00:00Z'));
-    writeQuiz('paper', saveQuizDraft(readQuiz('paper')!, first.id, [1, ...Array(9).fill(null)], '2026-10-30T14:01:00Z'));
+    const synced = makeBatch('synced');
+    writeQuiz('paper', appendQuizBatch(readQuiz('paper')!, synced));
     deferred.resolve({ text: JSON.stringify(generated('second')), by });
     expect((await finishJob(id)).status).toBe('done');
     const reloaded = readQuiz('paper')!;
-    expect(reloaded.batches).toHaveLength(2);
-    expect(reloaded.batches[0].attempts[0]).toMatchObject({ id: 'during-generation', score: 10 });
-    expect(reloaded.batches[0].draft?.answers).toEqual([1, ...Array(9).fill(null)]);
-    expect(quizResponse(reloaded).quiz!.batches[0].attempts[0].results.every((r) => r.correct)).toBe(true);
+    expect(reloaded.batches.map((batch) => batch.questions.length)).toEqual([10, 10, 10]);
+    expect(reloaded.batches.slice(0, 2)).toEqual([first, synced]);
   });
 
-  it.each(['malformed', 'duplicate', 'cli failure'])('retains the exact artifact after %s with no automatic retry', async (failure) => {
-    const first = makeBatch('first');
-    const content = submitQuizAttempt({ version: 1, batches: [first] }, first.id, Array(10).fill(0), 'history', '2026-10-30');
+  it.each(['malformed', 'invalid JSON', 'invalid evidence', 'duplicate', 'cli failure'])('retains the exact artifact after %s with no automatic retry', async (failure) => {
+    const content: QuizContent = { version: 2, batches: [makeBatch('first')] };
     writeQuiz('paper', content);
     const before = getArtifact('paper', 'quiz');
     if (failure === 'malformed') vi.mocked(runLlm).mockResolvedValueOnce({ text: JSON.stringify({ questions: generated('second').questions.slice(0, 9) }), by });
+    if (failure === 'invalid JSON') vi.mocked(runLlm).mockResolvedValueOnce({ text: '{"questions":', by });
+    if (failure === 'invalid evidence') {
+      const raw = generated('second');
+      raw.questions[0].source.page = 1;
+      vi.mocked(runLlm).mockResolvedValueOnce({ text: JSON.stringify(raw), by });
+    }
     if (failure === 'duplicate') vi.mocked(runLlm).mockResolvedValueOnce({ text: JSON.stringify(generated()), by });
     if (failure === 'cli failure') vi.mocked(runLlm).mockRejectedValueOnce(new Error('fixture CLI failed'));
     expect((await finishJob(startQuiz('paper'))).status).toBe('error');
@@ -209,7 +255,7 @@ describe('quiz job persistence without real AI', () => {
   });
 
   it('coalesces simultaneous generation requests and does not commit a cancelled result', async () => {
-    writeQuiz('paper', { version: 1, batches: [makeBatch('first')] });
+    writeQuiz('paper', { version: 2, batches: [makeBatch('first')] });
     const before = getArtifact('paper', 'quiz');
     const deferred = Promise.withResolvers<LlmResult>();
     vi.mocked(runLlm).mockReturnValueOnce(deferred.promise);

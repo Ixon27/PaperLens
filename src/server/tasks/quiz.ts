@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import { appendQuizBatch, parseQuizContent, validateQuizGeneration, type QuizContent } from '../../shared/quiz';
-import { getArtifact, getBlocks, getPaper, now, putArtifact } from '../db';
+import { db, getArtifact, getBlocks, getPaper, now, putArtifact } from '../db';
 import { HttpError } from '../http-error';
 import { startJob } from '../jobs';
 import { parseJsonLoose } from '../json';
@@ -12,7 +12,17 @@ export function readQuiz(paperId: string): QuizContent | null {
   const artifact = getArtifact(paperId, 'quiz');
   if (!artifact) return null;
   try {
-    return parseQuizContent(JSON.parse(artifact.content));
+    const raw = JSON.parse(artifact.content);
+    // Explicit v1 → v2 migration, including v1 rows arriving later through sync.
+    // Only question data survives parsing; draft answers and attempts are discarded.
+    const legacy = raw?.version === 1;
+    const content = parseQuizContent(legacy ? { version: 2, batches: raw.batches } : raw);
+    if (legacy) {
+      const meta = { ...JSON.parse(artifact.meta), version: 2 };
+      db.prepare('UPDATE artifacts SET content=?, meta=?, updated_at=? WHERE paper_id=? AND kind=?')
+        .run(JSON.stringify(content), JSON.stringify(meta), now(), paperId, 'quiz');
+    }
+    return content;
   } catch {
     throw new HttpError(409, '저장된 퀴즈 형식을 읽을 수 없습니다. 기존 기록은 그대로 보관되어 있습니다');
   }
@@ -20,7 +30,7 @@ export function readQuiz(paperId: string): QuizContent | null {
 
 export function writeQuiz(paperId: string, content: QuizContent): void {
   const by = content.batches.at(-1)?.by ?? null;
-  putArtifact(paperId, 'quiz', JSON.stringify(content), { version: 1 }, by);
+  putArtifact(paperId, 'quiz', JSON.stringify(content), { version: 2 }, by);
 }
 
 export function startQuiz(paperId: string): string {
@@ -41,10 +51,9 @@ export function startQuiz(paperId: string): string {
     if (ctx.signal.aborted) throw new Error('취소됨');
     ctx.progress(0.9, '문항과 원문 근거 확인 중…');
     const questions = validateQuizGeneration(parseJsonLoose<unknown>(result.text), blocks, existing).map((q) => ({ id: nanoid(12), ...q }));
-    // Read after the awaited CLI call. Synchronous read/merge/write cannot interleave with draft or
-    // submission routes, so answers saved while generation was running are never overwritten.
-    const latest = readQuiz(paperId) ?? { version: 1, batches: [] };
-    const next = appendQuizBatch(latest, { id: nanoid(12), createdAt: now(), by: result.by, questions, draft: null, attempts: [] });
+    // Merge against the latest persisted questions, including batches received through sync.
+    const latest = readQuiz(paperId) ?? { version: 2, batches: [] };
+    const next = appendQuizBatch(latest, { id: nanoid(12), createdAt: now(), by: result.by, questions });
     if (ctx.signal.aborted) throw new Error('취소됨');
     writeQuiz(paperId, next);
   });

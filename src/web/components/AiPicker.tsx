@@ -15,7 +15,7 @@ type Patch = { engine?: EngineId; claude?: Partial<Settings['claude']>; codex?: 
 
 const PROFILES: { id: Profile; title: string; subtitle: string }[] = [
   { id: 'quick', title: '빠른 작업', subtitle: '번역 · 요약 · 핵심 용어 · 용어 설명 · 대화 · 참고문헌 추출 · 분야 판별 · 내보내기 이름' },
-  { id: 'heavy', title: '깊은 작업', subtitle: 'Deep Research · 추가 분석 · 마인드맵 · 인터랙티브 그림 · 연구 계보' },
+  { id: 'heavy', title: '깊은 작업', subtitle: 'Deep Research · 추가 분석 · 마인드맵 · 퀴즈 생성 · 인터랙티브 그림 · 연구 계보' },
 ];
 
 function applyPatch(s: Settings, p: Patch): Settings {
@@ -277,6 +277,7 @@ export function AiPicker() {
               />
             ))}
           <p className="px-3 pt-1 text-[11.5px] text-fg-dim">대화·설명 카드는 기본적으로 빠른 작업 모델을 사용하며, 대화에서 별도로 선택한 모델이 있으면 그 설정을 따릅니다.</p>
+          <p className="px-3 pt-1 text-[11.5px] text-fg-dim">퀴즈의 새 문제 생성은 깊은 작업 모델을 사용합니다. 보기 선택·정답 확인·다시 풀기와 논문 목록 내보내기는 AI를 호출하지 않습니다.</p>
           </div>
           <div className="mt-2 flex items-center justify-between gap-2 border-t border-line px-2 pt-2">
             <span className="min-w-0 truncate text-[11.5px] text-fg-dim" title={status}>
