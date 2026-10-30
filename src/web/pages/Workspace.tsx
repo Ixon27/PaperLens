@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ChartScatter,
   FileSearch,
+  GraduationCap,
   GitFork,
   Highlighter,
   Languages,
@@ -29,6 +30,7 @@ import { HighlightsPanel } from '../panels/HighlightsPanel';
 import { LineagePanel } from '../panels/LineagePanel';
 import { MindmapPanel } from '../panels/MindmapPanel';
 import { OverviewPanel } from '../panels/OverviewPanel';
+import { QuizPanel } from '../panels/QuizPanel';
 import { TranslationPane } from '../panels/TranslationPane';
 import { PdfPane } from '../pdf/PdfPane';
 import { PaperProvider, usePaper } from '../state/paper';
@@ -45,6 +47,7 @@ const TABS: { id: TabId; label: string; Icon: LucideIcon; needsText: boolean }[]
   { id: 'analysis', label: 'Deep Research', Icon: FileSearch, needsText: true },
   { id: 'figures', label: '그림', Icon: ChartScatter, needsText: true },
   { id: 'mindmap', label: '마인드맵', Icon: Network, needsText: true },
+  { id: 'quiz', label: '퀴즈', Icon: GraduationCap, needsText: true },
   { id: 'lineage', label: '계보', Icon: GitFork, needsText: true },
   { id: 'citations', label: '인용·관련', Icon: Quote, needsText: true },
   { id: 'highlights', label: '하이라이트', Icon: Highlighter, needsText: false },
@@ -55,6 +58,7 @@ const PANELS: Record<TabId, () => ReactNode> = {
   analysis: () => <AnalysisPanel />,
   figures: () => <Suspense fallback={<Spinner text="불러오는 중…" />}><FiguresPanel /></Suspense>,
   mindmap: () => <MindmapPanel />,
+  quiz: () => <QuizPanel />,
   lineage: () => <LineagePanel />,
   citations: () => <CitationsPanel />,
   highlights: () => <HighlightsPanel />,

@@ -68,6 +68,9 @@ function filterLabel(filter: Filter): string {
 
 export function Library() {
   const [papers, setPapers] = useState<PaperDto[] | null>(null);
+  const [allPapers, setAllPapers] = useState<PaperDto[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [exportOpen, setExportOpen] = useState(false);
   const [q, setQ] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
   const [input, setInput] = useState('');
@@ -96,7 +99,13 @@ export function Library() {
   }, [q]);
 
   const load = useCallback(async () => {
-    const list = await api<PaperDto[]>(`/api/papers${debouncedQ ? `?q=${encodeURIComponent(debouncedQ)}` : ''}`);
+    const [list, all] = await Promise.all([
+      api<PaperDto[]>(`/api/papers${debouncedQ ? `?q=${encodeURIComponent(debouncedQ)}` : ''}`),
+      debouncedQ ? api<PaperDto[]>('/api/papers') : Promise.resolve(null),
+    ]);
+    const complete = all ?? list;
+    setAllPapers(complete);
+    setSelected((previous) => new Set([...previous].filter((id) => complete.some((p) => p.id === id))));
     const known = knownIds.current;
     if (known === null) {
       knownIds.current = new Set(list.map((p) => p.id));
@@ -156,6 +165,18 @@ export function Library() {
     if (sort === 'title') return [...list].sort((a, b) => a.title.localeCompare(b.title, 'ko'));
     return list;
   }, [papers, filter, sort]);
+
+  const sortedAll = useMemo(() => {
+    if (sort === 'added') return [...allPapers].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    if (sort === 'title') return [...allPapers].sort((a, b) => a.title.localeCompare(b.title, 'ko'));
+    return allPapers;
+  }, [allPapers, sort]);
+  const toggleSelected = (id: string) => setSelected((previous) => {
+    const next = new Set(previous);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
 
   const chooseSort = (value: string) => {
     if (!isSort(value)) return;
@@ -394,8 +415,25 @@ export function Library() {
                 <select aria-label="정렬" className="h-9 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-fg" value={sort} onChange={(e) => chooseSort(e.target.value)}>
                   {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
+                <button className={btnCls} disabled={!allPapers.length} onClick={() => setExportOpen(true)}>목록 내보내기</button>
               </div>
             </div>
+            {visible.length > 0 && (
+              <div className="mb-3 flex items-center gap-3 text-[13px] text-fg-muted">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" aria-label="현재 목록 전체 선택" checked={visible.every((p) => selected.has(p.id))}
+                    ref={(node) => { if (node) node.indeterminate = visible.some((p) => selected.has(p.id)) && !visible.every((p) => selected.has(p.id)); }}
+                    onChange={(e) => setSelected((previous) => {
+                      const next = new Set(previous);
+                      for (const p of visible) { if (e.target.checked) next.add(p.id); else next.delete(p.id); }
+                      return next;
+                    })} />
+                  현재 목록 전체 선택 ({visible.length}편)
+                </label>
+                <span>선택 {selected.size}편</span>
+                {selected.size > 0 && <button className="text-accent" onClick={() => setSelected(new Set())}>선택 해제</button>}
+              </div>
+            )}
 
             {papers === null ? (
               <p className="mt-6 text-[13px] text-fg-muted">불러오는 중…</p>
@@ -422,7 +460,7 @@ export function Library() {
                 </div>
                 <ul className="divide-y divide-line">
                   {visible.map((p) => (
-                    <PaperRow key={p.id} p={p} isNew={newIds.has(p.id)} onDelete={() => void remove(p)} onChanged={() => void load()} />
+                    <PaperRow key={p.id} p={p} isNew={newIds.has(p.id)} selected={selected.has(p.id)} onSelect={() => toggleSelected(p.id)} onDelete={() => void remove(p)} onChanged={() => void load()} />
                   ))}
                 </ul>
               </div>
@@ -430,6 +468,7 @@ export function Library() {
           </section>
         </div>
       </div>
+      {exportOpen && <LibraryExportDialog all={sortedAll} visible={visible} selected={selected} onClose={() => setExportOpen(false)} />}
       {drop !== 'idle' && (
         <div className="pointer-events-none fixed inset-0 z-[80]">
           <div className={`pr-fade-in absolute inset-0 bg-canvas/60 backdrop-blur-[2px] transition-opacity duration-200 ${dropping ? 'opacity-0' : ''}`} />
@@ -501,7 +540,7 @@ function Progress({ p, running }: { p: PaperDto; running: boolean }) {
   );
 }
 
-function PaperRow({ p, isNew, onDelete, onChanged }: { p: PaperDto; isNew: boolean; onDelete(): void; onChanged(): void }) {
+function PaperRow({ p, isNew, selected, onSelect, onDelete, onChanged }: { p: PaperDto; isNew: boolean; selected: boolean; onSelect(): void; onDelete(): void; onChanged(): void }) {
   const toast = useToast();
   const [renaming, setRenaming] = useState(false);
   const running = !!p.job && (p.job.status === 'running' || p.job.status === 'queued');
@@ -509,7 +548,9 @@ function PaperRow({ p, isNew, onDelete, onChanged }: { p: PaperDto; isNew: boole
   return (
     <li className={`group px-4 py-3.5 transition-colors duration-150 hover:bg-hover ${isNew ? 'pr-row-new' : ''}`}>
       <div className={`flex flex-col gap-3 ${ROW_GRID}`}>
-        <Link href={`/paper/${p.id}`} className="flex min-w-0 items-start gap-3 rounded-lg">
+        <div className="flex min-w-0 items-start gap-3">
+          <input type="checkbox" className="mt-3 shrink-0" aria-label={`${p.title} 선택`} checked={selected} onChange={onSelect} />
+        <Link href={`/paper/${p.id}`} className="flex min-w-0 flex-1 items-start gap-3 rounded-lg">
           <span
             className={`mt-0.5 grid h-11 w-9 shrink-0 place-items-center rounded-md border ${
               p.hasPdf ? 'border-line bg-sunken text-accent' : 'border-warning/30 bg-warning-soft text-warning'
@@ -522,6 +563,7 @@ function PaperRow({ p, isNew, onDelete, onChanged }: { p: PaperDto; isNew: boole
             {meta && <span className="mt-1 block truncate text-[12.5px] text-fg-muted">{meta}</span>}
           </span>
         </Link>
+        </div>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pl-12 xl:contents">
           <div>{p.field ? <Badge tone="accent">{FIELD_LABELS[p.field]}</Badge> : <Badge tone="warning">분야 확인 필요</Badge>}</div>
           <Progress p={p} running={running} />
@@ -605,6 +647,75 @@ function RenamePaperDialog({ paper, onClose, onChanged }: { paper: PaperDto; onC
         <textarea autoFocus className={`${inputCls} h-20 resize-y`} value={title} onChange={(e) => setTitle(e.target.value)} />
       </Field>
       {error && <div className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-[13px] text-danger">{error}</div>}
+    </Dialog>
+  );
+}
+
+function LibraryExportDialog({ all, visible, selected, onClose }: { all: PaperDto[]; visible: PaperDto[]; selected: Set<string>; onClose(): void }) {
+  const [scope, setScope] = useState<'all' | 'visible' | 'selected'>('visible');
+  const [format, setFormat] = useState<'xlsx' | 'md'>('xlsx');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const chosen = scope === 'all' ? all : scope === 'visible' ? visible : all.filter((p) => selected.has(p.id));
+  const download = async () => {
+    if (!chosen.length || saving) return;
+    setSaving(true);
+    setError('');
+    try {
+      // Desktop's onBeforeSendHeaders supplies the same auth as api(); no token enters renderer state.
+      const response = await fetch('/api/library/export', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format, ids: chosen.map((p) => p.id) }),
+      });
+      if (!response.ok) {
+        let message = `내보내기 실패 (${response.status})`;
+        try {
+          const body = await response.json() as { error?: string };
+          if (body.error) message = body.error;
+        } catch { /* Keep the HTTP error when the response isn't JSON. */ }
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      if (!blob.size) throw new Error('내보낸 파일이 비어 있습니다');
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      const encoded = /filename\*=UTF-8''([^;]+)/i.exec(response.headers.get('Content-Disposition') ?? '')?.[1];
+      anchor.download = encoded ? decodeURIComponent(encoded) : `논문-목록.${format}`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Dialog title="목록 내보내기" onClose={onClose} dismissible={!saving} footer={(close) => (
+      <>
+        <button className={btnCls} disabled={saving} onClick={close}>취소</button>
+        <button className={primaryBtnCls} disabled={saving || !chosen.length} onClick={() => void download()}>{saving ? '내보내는 중…' : `${chosen.length}편 다운로드`}</button>
+      </>
+    )}>
+      <Field label="내보낼 범위" hint="현재 정렬 순서를 유지합니다. 선택은 분류·검색을 바꿔도 유지됩니다.">
+        <select aria-label="내보낼 범위" className={inputCls} value={scope} disabled={saving} onChange={(e) => setScope(e.target.value as typeof scope)}>
+          <option value="all">라이브러리 전체 ({all.length}편)</option>
+          <option value="visible">현재 분류·검색 결과 ({visible.length}편)</option>
+          <option value="selected">선택한 논문 ({all.filter((p) => selected.has(p.id)).length}편)</option>
+        </select>
+      </Field>
+      <Field label="파일 형식">
+        <select aria-label="내보낼 파일 형식" className={inputCls} value={format} disabled={saving} onChange={(e) => setFormat(e.target.value as typeof format)}>
+          <option value="xlsx">Excel (.xlsx)</option>
+          <option value="md">Markdown 표 (.md)</option>
+        </select>
+      </Field>
+      <p className="text-[13px] text-fg-muted">제목·저자·연도·학술지·DOI·분야·추가일·최근 열람일·PDF·번역·분석 상태를 내보냅니다. 최근 열람은 읽기 완료를 뜻하지 않습니다. AI를 사용하지 않습니다.</p>
+      {!chosen.length && <p className="text-[13px] text-fg-muted">내보낼 논문이 없습니다. 범위를 바꾸거나 논문을 선택하세요.</p>}
+      {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
     </Dialog>
   );
 }

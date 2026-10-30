@@ -13,6 +13,8 @@ import { terms } from './terms';
 import { sync } from './sync';
 import { threads } from './threads';
 import { translation } from './translation';
+import { quizRoutes } from './quiz';
+import { libraryExportRoutes } from './library-export';
 
 export const api = new Hono();
 
@@ -30,3 +32,5 @@ api.route('/', terms);
 api.route('/', openalexRoutes);
 api.route('/', exportRoutes);
 api.route('/', sync);
+api.route('/', quizRoutes);
+api.route('/', libraryExportRoutes);

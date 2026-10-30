@@ -3,7 +3,7 @@ import type { Highlight, PdfHighlighterUtils } from 'react-pdf-highlighter-exten
 import { rangesFor, showSource } from '../pdf/syncHighlight';
 import type { AskInput, BlockDto } from '../types';
 
-export type TabId = 'overview' | 'analysis' | 'figures' | 'mindmap' | 'lineage' | 'citations' | 'highlights';
+export type TabId = 'overview' | 'analysis' | 'figures' | 'mindmap' | 'lineage' | 'citations' | 'highlights' | 'quiz';
 export type PdfMode = 'split' | 'full-panel';
 export type PendingAsk = AskInput & { nonce: number };
 
@@ -69,7 +69,7 @@ export function blockHighlight(b: BlockDto): Highlight {
 }
 
 const TAB_KEY = 'pr.tab';
-const TABS: TabId[] = ['overview', 'analysis', 'figures', 'mindmap', 'lineage', 'citations', 'highlights'];
+const TABS: TabId[] = ['overview', 'analysis', 'figures', 'mindmap', 'lineage', 'citations', 'highlights', 'quiz'];
 
 function storedTab(): TabId {
   const saved = localStorage.getItem(TAB_KEY);
@@ -144,7 +144,17 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
     sourceCleanup.current?.();
     clearTimeout(sourceTimer.current);
     showSource([]);
+    const deadline = Date.now() + 5000;
     const go = () => {
+      // A saved quiz can load before PdfHighlighter has constructed its page views.
+      const readyViewer = utilsRef.current?.getViewer();
+      if (!readyViewer?.getPageView(block.page - 1)) {
+        if (Date.now() < deadline) {
+          const frame = requestAnimationFrame(go);
+          sourceCleanup.current = () => cancelAnimationFrame(frame);
+        }
+        return;
+      }
       sourceCleanup.current = null;
       scrollToBlock(block);
       const paint = () => {
