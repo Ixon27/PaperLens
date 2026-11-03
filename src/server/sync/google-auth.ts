@@ -3,6 +3,9 @@ import { createServer, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { SYNC_SCOPES, type GoogleConfig } from './google-config';
 
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+export const MISSING_DRIVE_SCOPE = 'Google 권한 화면에서 Drive 항목(PaperLens의 앱 데이터 접근)이 선택되지 않았습니다. 연결을 해제한 뒤 다시 연결하고 해당 항목을 체크하세요';
+
 export interface SecretStore {
   load(): Promise<string | null>;
   save(value: string): Promise<void>;
@@ -29,6 +32,7 @@ interface TokenResponse {
   access_token?: string;
   expires_in?: number;
   refresh_token?: string;
+  scope?: string;
   id_token?: string;
   error?: string;
   error_description?: string;
@@ -244,6 +248,16 @@ export class GoogleAuth {
     });
     if (status !== 200 || !body.access_token) {
       throw new Error(`Google 토큰 발급 실패 (${status}): ${body.error ?? '알 수 없는 오류'}`);
+    }
+    // Google 동의 화면에서 Drive 항목을 해제하면 토큰은 나오지만 appDataFolder 접근 권한이 없다.
+    if (!(body.scope ?? '').split(' ').includes(DRIVE_SCOPE)) {
+      await fetch(this.cfg.revokeUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ token: body.refresh_token ?? body.access_token }),
+        signal: AbortSignal.timeout(10_000),
+      }).catch(() => {});
+      throw new Error(MISSING_DRIVE_SCOPE);
     }
     if (!body.refresh_token) throw new Error('Google이 refresh token을 주지 않았습니다. 다시 연결하세요');
     const account = decodeIdToken(body.id_token);

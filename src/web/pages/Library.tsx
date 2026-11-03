@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
-import { CircleAlert, FileText, FileUp, LibraryBig, Loader2, Pencil, Search, Trash2, Upload } from 'lucide-react';
+import { CircleAlert, FileText, FileUp, LibraryBig, Loader2, Pencil, Search, Star, Trash2, Upload } from 'lucide-react';
 import { FIELDS, FIELD_LABELS, isFieldId, type FieldId } from '../../shared/fields';
 import { api } from '../api';
 import { btnCls, Dialog, Field, inputCls, primaryBtnCls } from '../components/Dialog';
 import { JobBar } from '../components/JobBar';
 import { LiquidDrop } from '../components/LiquidDrop';
 import { useToast } from '../components/Toast';
+import { ComparisonDialog } from '../components/ComparisonDialog';
 import type { PaperDto, SyncStatusDto } from '../types';
 
 interface ImportResult {
@@ -30,7 +31,7 @@ const SORT_KEY = 'pr.librarySort';
 const isSort = (v: unknown): v is Sort => SORTS.some((s) => s.id === v);
 
 /** The table layout from 1280 px; narrower windows stack each row. */
-const ROW_GRID = 'xl:grid xl:grid-cols-[minmax(0,1fr)_150px_150px_88px_140px] xl:items-center xl:gap-4';
+const ROW_GRID = 'xl:grid xl:grid-cols-[minmax(0,1fr)_120px_110px_80px_230px] xl:items-center xl:gap-4';
 
 export function authorShort(p: Pick<PaperDto, 'authors'>): string {
   if (!p.authors.length) return '';
@@ -71,6 +72,8 @@ export function Library() {
   const [allPapers, setAllPapers] = useState<PaperDto[]>([]);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [exportOpen, setExportOpen] = useState(false);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
+  const [organization, setOrganization] = useState<'all' | 'starred' | 'unread' | 'reading' | 'read'>('all');
   const [q, setQ] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
   const [input, setInput] = useState('');
@@ -159,12 +162,13 @@ export function Library() {
   const fieldsShown = FIELDS.filter((f) => counts.byField.has(f) || f === filter);
 
   const visible = useMemo(() => {
-    const list = (papers ?? []).filter((p) => (filter === 'all' ? true : filter === 'unconfirmed' ? p.field === null : p.field === filter));
+    const list = (papers ?? []).filter((p) => (filter === 'all' ? true : filter === 'unconfirmed' ? p.field === null : p.field === filter)
+      && (organization === 'all' || (organization === 'starred' ? p.starred : p.readStatus === organization)));
     // The server already orders by last opened, then by date added.
     if (sort === 'added') return [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     if (sort === 'title') return [...list].sort((a, b) => a.title.localeCompare(b.title, 'ko'));
     return list;
-  }, [papers, filter, sort]);
+  }, [papers, filter, sort, organization]);
 
   const sortedAll = useMemo(() => {
     if (sort === 'added') return [...allPapers].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -389,6 +393,14 @@ export function Library() {
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <select aria-label="읽기 상태 필터" className="h-9 rounded-lg border border-line bg-surface px-2 text-[13px] text-fg" value={organization} onChange={(e) => setOrganization(e.target.value as typeof organization)}>
+                  <option value="all">모든 읽기 상태</option>
+                  <option value="starred">별표</option>
+                  <option value="unread">안 읽음</option>
+                  <option value="reading">읽는 중</option>
+                  <option value="read">읽음</option>
+                </select>
+                <button className={btnCls} onClick={() => setComparisonOpen(true)}>논문 비교 · 저장 결과</button>
                 <select
                   aria-label="분류"
                   className="h-9 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-fg lg:hidden"
@@ -406,7 +418,7 @@ export function Library() {
                   <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-fg-dim" />
                   <input
                     className="h-9 w-64 rounded-lg border border-line bg-surface pr-3 pl-9 text-[13px] text-fg outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-fg-dim focus:border-focus focus:ring-2 focus:ring-focus/25"
-                    placeholder="제목·저자·본문 검색"
+                    placeholder="제목·저자·본문·메모 검색"
                     aria-label="라이브러리 검색"
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
@@ -416,6 +428,7 @@ export function Library() {
                   {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
                 <button className={btnCls} disabled={!allPapers.length} onClick={() => setExportOpen(true)}>목록 내보내기</button>
+                <span className="text-[12px] text-fg-muted">비교할 논문 2~4편을 선택하세요.</span>
               </div>
             </div>
             {visible.length > 0 && (
@@ -469,6 +482,7 @@ export function Library() {
         </div>
       </div>
       {exportOpen && <LibraryExportDialog all={sortedAll} visible={visible} selected={selected} onClose={() => setExportOpen(false)} />}
+      {comparisonOpen && <ComparisonDialog paperIds={[...selected]} onClose={() => setComparisonOpen(false)} />}
       {drop !== 'idle' && (
         <div className="pointer-events-none fixed inset-0 z-[80]">
           <div className={`pr-fade-in absolute inset-0 bg-canvas/60 backdrop-blur-[2px] transition-opacity duration-200 ${dropping ? 'opacity-0' : ''}`} />
@@ -541,6 +555,18 @@ function Progress({ p, running }: { p: PaperDto; running: boolean }) {
 }
 
 function PaperRow({ p, isNew, selected, onSelect, onDelete, onChanged }: { p: PaperDto; isNew: boolean; selected: boolean; onSelect(): void; onDelete(): void; onChanged(): void }) {
+  const [updating, setUpdating] = useState(false);
+  const updateOrganization = async (patch: { starred?: boolean; readStatus?: PaperDto['readStatus'] }) => {
+    setUpdating(true);
+    try {
+      await api(`/api/papers/${p.id}`, { method: 'PATCH', json: patch });
+      onChanged();
+    } catch (e) {
+      toast((e as Error).message, { tone: 'error' });
+    } finally {
+      setUpdating(false);
+    }
+  };
   const toast = useToast();
   const [renaming, setRenaming] = useState(false);
   const running = !!p.job && (p.job.status === 'running' || p.job.status === 'queued');
@@ -550,6 +576,9 @@ function PaperRow({ p, isNew, selected, onSelect, onDelete, onChanged }: { p: Pa
       <div className={`flex flex-col gap-3 ${ROW_GRID}`}>
         <div className="flex min-w-0 items-start gap-3">
           <input type="checkbox" className="mt-3 shrink-0" aria-label={`${p.title} 선택`} checked={selected} onChange={onSelect} />
+          <button aria-label={`${p.title} 별표`} aria-pressed={p.starred} disabled={updating} className={`mt-2 shrink-0 rounded p-1 hover:bg-hover ${p.starred ? 'text-warning' : 'text-fg-dim'}`} onClick={() => void updateOrganization({ starred: !p.starred })}>
+            <Star size={16} fill={p.starred ? 'currentColor' : 'none'} />
+          </button>
         <Link href={`/paper/${p.id}`} className="flex min-w-0 flex-1 items-start gap-3 rounded-lg">
           <span
             className={`mt-0.5 grid h-11 w-9 shrink-0 place-items-center rounded-md border ${
@@ -563,6 +592,9 @@ function PaperRow({ p, isNew, selected, onSelect, onDelete, onChanged }: { p: Pa
             {meta && <span className="mt-1 block truncate text-[12.5px] text-fg-muted">{meta}</span>}
           </span>
         </Link>
+        {p.searchMatch && <Link href={`/paper/${p.id}${p.searchMatch.highlightId ? `#highlight-${encodeURIComponent(p.searchMatch.highlightId)}` : p.searchMatch.page ? `#p-${p.searchMatch.page}` : ''}`} className="mt-1 block max-w-xs rounded bg-sunken px-2 py-1 text-[12px] text-accent">
+          {({ title: '제목', authors: '저자', body: '본문', highlight: '하이라이트', note: '메모' })[p.searchMatch.source]} · {p.searchMatch.snippet}
+        </Link>}
         </div>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pl-12 xl:contents">
           <div>{p.field ? <Badge tone="accent">{FIELD_LABELS[p.field]}</Badge> : <Badge tone="warning">분야 확인 필요</Badge>}</div>
@@ -572,8 +604,13 @@ function PaperRow({ p, isNew, selected, onSelect, onDelete, onChanged }: { p: Pa
             {openedLabel(p.lastOpenedAt)}
           </div>
           <div className="flex items-center gap-1 xl:justify-end">
+            <select aria-label={`${p.title} 읽기 상태`} className="h-8 max-w-24 rounded border border-line bg-surface text-[12px] text-fg" value={p.readStatus} disabled={updating} onChange={(e) => void updateOrganization({ readStatus: e.target.value as PaperDto['readStatus'] })}>
+              <option value="unread">안 읽음</option>
+              <option value="reading">읽는 중</option>
+              <option value="read">읽음</option>
+            </select>
             <button
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line px-2.5 text-[12.5px] text-fg-muted transition-[background-color,color,transform] duration-150 hover:bg-hover hover:text-fg active:scale-[0.97]"
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-line px-2.5 text-[12.5px] text-fg-muted transition-[background-color,color,transform] duration-150 hover:bg-hover hover:text-fg active:scale-[0.97]"
               aria-label={`${p.title} 이름 변경`}
               onClick={() => setRenaming(true)}
             >
@@ -653,7 +690,7 @@ function RenamePaperDialog({ paper, onClose, onChanged }: { paper: PaperDto; onC
 
 function LibraryExportDialog({ all, visible, selected, onClose }: { all: PaperDto[]; visible: PaperDto[]; selected: Set<string>; onClose(): void }) {
   const [scope, setScope] = useState<'all' | 'visible' | 'selected'>('visible');
-  const [format, setFormat] = useState<'xlsx' | 'md'>('xlsx');
+  const [format, setFormat] = useState<'xlsx' | 'md' | 'bib' | 'ris'>('xlsx');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const chosen = scope === 'all' ? all : scope === 'visible' ? visible : all.filter((p) => selected.has(p.id));
@@ -711,9 +748,11 @@ function LibraryExportDialog({ all, visible, selected, onClose }: { all: PaperDt
         <select aria-label="내보낼 파일 형식" className={inputCls} value={format} disabled={saving} onChange={(e) => setFormat(e.target.value as typeof format)}>
           <option value="xlsx">Excel (.xlsx)</option>
           <option value="md">Markdown 표 (.md)</option>
+          <option value="bib">BibTeX (.bib)</option>
+          <option value="ris">RIS (.ris)</option>
         </select>
       </Field>
-      <p className="text-[13px] text-fg-muted">제목·저자·연도·학술지·DOI·분야·추가일·최근 열람일·PDF·번역·분석 상태를 내보냅니다. 최근 열람은 읽기 완료를 뜻하지 않습니다. AI를 사용하지 않습니다.</p>
+      <p className="text-[13px] text-fg-muted">{format === 'bib' || format === 'ris' ? '저장된 서지정보로 인용 파일을 만듭니다. 없는 정보는 생략합니다. Zotero 등의 가져오기 기능에서 열 수 있으며 직접 동기화는 아닙니다.' : '제목·저자·연도·학술지·DOI·분야·추가일·최근 열람일·PDF·번역·분석 상태를 내보냅니다. 최근 열람은 읽기 완료를 뜻하지 않습니다.'} AI를 사용하지 않습니다.</p>
       {!chosen.length && <p className="text-[13px] text-fg-muted">내보낼 논문이 없습니다. 범위를 바꾸거나 논문을 선택하세요.</p>}
       {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
     </Dialog>

@@ -15,11 +15,15 @@ export function startSummary(paperId: string): string {
     const paper = getPaper(paperId);
     if (!paper) throw new Error('논문을 찾을 수 없습니다');
     const settings = getSettings();
-    const by = resolveModel('quick', settings);
+    const requested = resolveModel('quick', settings);
+    let by = requested;
     const system = paperSystem(paper, { includeRefs: false });
     const prompt = fill(loadPrompt('summary').PROMPT, { title: paper.title, context: settings.readerContext });
-    const call = async (p: string) =>
-      (await runLlm({ system, prompt: p, profile: 'quick', model: by, timeoutMs: TIMEOUT_MS, signal: ctx.signal, onDelta: (t) => ctx.delta(t) })).text;
+    const call = async (p: string) => {
+      const result = await runLlm({ system, prompt: p, profile: 'quick', model: requested, timeoutMs: TIMEOUT_MS, signal: ctx.signal, onDelta: (t) => ctx.delta(t) });
+      by = result.by;
+      return result.text;
+    };
 
     ctx.progress(0.05, '요약 작성 중…');
     let text = await call(prompt);

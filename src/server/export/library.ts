@@ -4,7 +4,7 @@ import type { PaperRow, Author } from '../db';
 import { HttpError } from '../http-error';
 
 export const LIBRARY_COLUMNS = ['제목', '저자', '연도', '학술지', 'DOI', '분야', '추가일', '최근 열람일', 'PDF', '번역', '분석'] as const;
-export type LibraryFormat = 'xlsx' | 'md';
+export type LibraryFormat = 'xlsx' | 'md' | 'bib' | 'ris';
 export interface LibraryExportPaper {
   paper: PaperRow;
   authors: Author[];
@@ -15,7 +15,7 @@ export interface LibraryExportPaper {
 export function parseLibraryExportRequest(body: unknown): { format: LibraryFormat; ids?: string[] } {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, '내보내기 요청이 올바르지 않습니다');
   const b = body as Record<string, unknown>;
-  if (b.format !== 'xlsx' && b.format !== 'md') throw new HttpError(400, 'Excel 또는 Markdown 형식을 선택하세요');
+  if (b.format !== 'xlsx' && b.format !== 'md' && b.format !== 'bib' && b.format !== 'ris') throw new HttpError(400, 'Excel, Markdown, BibTeX 또는 RIS 형식을 선택하세요');
   if (Object.keys(b).some((key) => key !== 'format' && key !== 'ids')) throw new HttpError(400, '알 수 없는 내보내기 옵션입니다');
   if ('ids' in b) {
     if (!Array.isArray(b.ids) || !b.ids.length || b.ids.some((id) => typeof id !== 'string' || !id.trim()) || new Set(b.ids).size !== b.ids.length) {

@@ -38,3 +38,26 @@ it('carries a stored single Codex model into both profiles', () => {
   expect(codex.quickModel).toBe('gpt-6-luna');
   expect(codex.heavyModel).toBe('gpt-6-luna');
 });
+
+it('migrates empty legacy effort on both engines without replacing saved model or explicit values', () => {
+  db.prepare("INSERT INTO settings(key,value) VALUES('app',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
+    JSON.stringify({
+      claude: { quickModel: 'saved-claude', heavyModel: 'saved-heavy', quickEffort: '', heavyEffort: 'max' },
+      codex: { quickModel: 'saved-codex', heavyModel: '', quickEffort: 'xhigh', heavyEffort: '' },
+      readerContext: 'preserve this reader context',
+    }),
+  );
+  const settings = getSettings();
+  expect(settings.claude).toEqual({ quickModel: 'saved-claude', heavyModel: 'saved-heavy', quickEffort: 'low', heavyEffort: 'max' });
+  expect(settings.codex).toEqual({ quickModel: 'saved-codex', heavyModel: '', quickEffort: 'xhigh', heavyEffort: 'high' });
+  expect(settings.readerContext).toBe('preserve this reader context');
+});
+
+it('defaults both engines to quick low and heavy high', () => {
+  db.prepare("DELETE FROM settings WHERE key='app'").run();
+  const settings = getSettings();
+  for (const engine of ['claude', 'codex'] as const) {
+    expect(settings[engine].quickEffort).toBe('low');
+    expect(settings[engine].heavyEffort).toBe('high');
+  }
+});

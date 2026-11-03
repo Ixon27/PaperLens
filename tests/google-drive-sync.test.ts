@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DriveTransport } from '../src/server/sync/drive';
-import { AuthExpiredError, GoogleAuth, type SecretStore } from '../src/server/sync/google-auth';
+import { AuthExpiredError, GoogleAuth, MISSING_DRIVE_SCOPE, type SecretStore } from '../src/server/sync/google-auth';
 import { googleConfig, type GoogleConfig } from '../src/server/sync/google-config';
 import { startFakeGoogle, type FakeGoogle } from './fixtures/fake-google';
 
@@ -109,6 +109,19 @@ describe('GoogleAuth', () => {
     await browse(url);
     await settled;
     expect(store.value).toBeNull();
+  });
+
+  it('refuses a login whose consent screen left the Drive permission unchecked, and revokes that token', async () => {
+    fake.omitDriveScope = true;
+    const store = memoryStore();
+    const auth = new GoogleAuth(cfg, store);
+    const { url, done } = await auth.beginLogin();
+    const settled = expect(done).rejects.toThrow(MISSING_DRIVE_SCOPE);
+    await browse(url);
+    await settled;
+    expect(store.value).toBeNull();
+    expect(await auth.connected()).toBe(false);
+    expect(fake.revoked).toHaveLength(1);
   });
 
   it('cancels the previous login and times out', async () => {

@@ -15,6 +15,8 @@ import { threads } from './threads';
 import { translation } from './translation';
 import { quizRoutes } from './quiz';
 import { libraryExportRoutes } from './library-export';
+import { presentationRoutes } from './presentation';
+import { comparisonRoutes } from './comparison';
 
 export const api = new Hono();
 
@@ -34,3 +36,5 @@ api.route('/', exportRoutes);
 api.route('/', sync);
 api.route('/', quizRoutes);
 api.route('/', libraryExportRoutes);
+api.route('/', presentationRoutes);
+api.route('/', comparisonRoutes);

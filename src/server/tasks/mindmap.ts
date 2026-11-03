@@ -81,12 +81,17 @@ export function startMindmap(paperId: string): string {
   return startJob(paperId, 'mindmap', async (ctx) => {
     const paper = getPaper(paperId);
     if (!paper) throw new Error('논문을 찾을 수 없습니다');
-    const by = resolveModel('heavy');
+    const requested = resolveModel('heavy');
+    let by = requested;
     const pageCount = paper.page_count ?? 0;
     const system = paperSystem(paper, { includeRefs: false });
     const prompt = loadPrompt('mindmap').PROMPT;
     if (!prompt) throw new Error('prompts/mindmap.md 에 PROMPT 섹션이 없습니다');
-    const ask = async (p: string) => (await runLlm({ system, prompt: p, profile: 'heavy', model: by, signal: ctx.signal })).text;
+    const ask = async (p: string) => {
+      const result = await runLlm({ system, prompt: p, profile: 'heavy', model: requested, signal: ctx.signal });
+      by = result.by;
+      return result.text;
+    };
 
     ctx.progress(0.05, '마인드맵 생성 중…');
     let root = tryParse(await ask(prompt), pageCount);

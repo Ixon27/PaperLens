@@ -2,11 +2,11 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProper
 import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { btnCls, chipCls, primaryBtnCls, smallPrimaryBtnCls } from '../components/Dialog';
+import { AiUsageNotice } from '../components/AiUsageNotice';
 import { isCancelled, JobBar } from '../components/JobBar';
 import { ModelBadge, formatMadeBy } from '../components/ModelBadge';
 import { TermCard } from '../components/TermCard';
 import { useToast } from '../components/Toast';
-import { useModelCatalog } from '../state/models';
 import { usePaper } from '../state/paper';
 import { useSyncHover, type SyncHover } from '../state/syncHover';
 import { useJob } from '../state/useJob';
@@ -157,7 +157,6 @@ export function TranslationPane() {
   const { paper, blocks, setBlocks, reloadBlocks, reloadPaper } = usePaper();
   const { currentPage, numPages, scrollToBlock } = useViewer();
   const { hover, setHover, clearHover } = useSyncHover();
-  const { catalog } = useModelCatalog();
   const toast = useToast();
   const [sync, setSync] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -244,7 +243,7 @@ export function TranslationPane() {
   );
 
   const start = async (force: boolean) => {
-    if (force && !confirm('기존 번역을 모두 지우고 다시 번역할까요?')) return;
+    if (force && !confirm('PDF 문단과 그림 설명을 다시 추출하고 기존 번역을 모두 교체합니다. 하이라이트와 메모는 유지됩니다. 선택한 모델로 여러 번 AI 요청하며 사용량이 발생할 수 있습니다. 다시 번역할까요?')) return;
     try {
       const { jobId } = await api<{ jobId: string }>(`/api/papers/${paper.id}/translation`, { method: 'POST', json: { force } });
       if (force) setBlocks((list) => list && list.map((b) => ({ ...b, ko: null, koSentences: null, by: null })));
@@ -298,7 +297,7 @@ export function TranslationPane() {
               <ModelBadge by={models[0]} />
             ) : (
               models.length > 1 && (
-                <span className="truncate text-[11px] text-fg-dim" title={models.map((m) => formatMadeBy(m, catalog)).join('\n')}>
+                <span className="truncate text-[11px] text-fg-dim" title={models.map((m) => formatMadeBy(m)).join('\n')}>
                   여러 모델
                 </span>
               )
@@ -313,6 +312,13 @@ export function TranslationPane() {
             스크롤 연동
           </button>
         </div>
+        {!job.running && <AiUsageNotice profile="quick" detail="번역 분량과 응답 형식에 따라 여러 번 요청합니다. 다시 번역은 기존 번역을 교체합니다." />}
+        {unaligned > 0 && !job.running && (
+          <div className="mt-2 text-[12px] text-warning">
+            이전 문단 배치와 일치하지 않는 번역은 원문 연결 없이 보존됩니다. 두 열이 섞였거나 그림 설명이 누락된 경우 다시 번역하면 PDF를 새로 추출합니다.
+            {done < total && <button className={`${btnCls} ml-2`} onClick={() => void start(true)}>배치 복구 후 다시 번역</button>}
+          </div>
+        )}
         {job.running || (job.job?.status === 'error' && !isCancelled(job.job)) ? (
           <div className="mt-2">
             <JobBar job={job.job} onCancel={() => void job.cancel()} />

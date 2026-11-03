@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check } from 'lucide-react';
 import type { EngineId, ModelCatalog, ModelChoice } from '../../shared/models';
+import { catalogModel, resolveEffort } from '../../shared/models';
 import { effortLabel, engineLabel } from '../labels';
 
 export const ENGINES: EngineId[] = ['claude', 'codex'];
@@ -11,10 +12,11 @@ export function choicesFor(engine: EngineId, catalog: ModelCatalog | null, curre
   const listed = catalog?.[engine].models ?? [];
   const list: ModelChoice[] = [];
   if (engine === 'codex') {
-    list.push({ value: '', label: 'CLI 기본 모델', description: 'Codex가 정한 기본 모델', efforts: listed.find((m) => m.isDefault)?.efforts ?? [] });
+    const cliDefault = catalogModel(engine, listed, '');
+    list.push({ ...cliDefault, value: '', label: 'CLI 기본 모델', description: 'Codex가 정한 기본 모델', efforts: cliDefault?.efforts ?? [] });
   }
   list.push(...listed);
-  if (!list.some((m) => m.value === current)) list.push({ value: current, label: current, description: '현재 설정 · 목록에 없음', efforts: [] });
+  if (!list.some((m) => m.value === current)) list.push({ value: current, label: current, description: '저장된 모델 · 현재 CLI 목록에 없음 · 직접 다시 선택하세요', efforts: [] });
   return list;
 }
 
@@ -27,8 +29,17 @@ export function modelLabel(engine: EngineId, catalog: ModelCatalog | null, value
 
 /** Keep the effort when the new model accepts it; otherwise the model's default, else no flag. */
 export function effortAfterModelChange(cur: string, m: ModelChoice): string {
-  if (cur === '' || m.efforts.includes(cur)) return cur;
-  return m.defaultEffort && m.efforts.includes(m.defaultEffort) ? m.defaultEffort : '';
+  return resolveEffort(cur, m);
+}
+
+/** Explain omitted flags rather than presenting a saved unsupported value as effective. */
+export function effortStatus(preferred: string, model?: ModelChoice): string {
+  if (!model || !model.efforts.length) return 'effort 설정 미지원 · CLI 기본값 사용 (수준 알 수 없음)';
+  const effective = resolveEffort(preferred, model);
+  if (effective === preferred) return `요청 effort: ${effortLabel(effective)} · 실제 내부 추론량은 알 수 없음`;
+  return effective
+    ? `선호 effort ${effortLabel(preferred)} 미지원 · CLI 기본값 ${effortLabel(effective)} 사용`
+    : `선호 effort ${effortLabel(preferred)} 미지원 · CLI 기본값 사용 (수준 알 수 없음)`;
 }
 
 /** The icon represents the selected level, not its position in a model-specific list. */
@@ -70,7 +81,7 @@ const canUseHoverShortcut = () => {
   return active instanceof HTMLElement && !isTextEntry() && !active.matches(':focus-visible');
 };
 
-/** Cycle only through the selected model's supported levels and its CLI default. */
+/** Cycle only through CLI-advertised supported levels; no synthetic auto/default choice. */
 export function EffortControl({ label, value, levels, onChange, disabled = false }: {
   label: string;
   value: string;
@@ -85,15 +96,15 @@ export function EffortControl({ label, value, levels, onChange, disabled = false
   const [hovered, setHovered] = useState(false);
   const [shortcutReady, setShortcutReady] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
-  const options = ['', ...new Set(levels.filter((level) => level !== ''))];
-  const next = options[(options.indexOf(value) + 1) % options.length];
+  const options = [...new Set(levels.filter((level) => level !== '' && level !== 'auto'))];
+  const next = options[(options.indexOf(value) + 1) % options.length] ?? '';
   const nextRef = useRef(next);
   const onChangeRef = useRef(onChange);
   const shortcutReadyRef = useRef(false);
   nextRef.current = next;
   onChangeRef.current = onChange;
-  const inactive = disabled || levels.length === 0;
-  const name = effortLabel(value);
+  const inactive = disabled || options.length === 0;
+  const name = options.length === 0 ? 'effort 설정 미지원' : effortLabel(value);
 
   const hide = () => {
     clearTimeout(timer.current);
@@ -149,6 +160,7 @@ export function EffortControl({ label, value, levels, onChange, disabled = false
         ref={buttonRef}
         type="button"
         aria-label={`${label} thinking effort: ${name}${inactive ? '' : ` · 클릭하여 ${effortLabel(next)}로 변경`}`}
+        title={`${label}: ${name}`}
         aria-describedby={position ? tooltipId : undefined}
         disabled={inactive}
         className="no-drag inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-fg-muted hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
@@ -226,9 +238,14 @@ export function ModelList({
   onModel(m: ModelChoice): void;
 }) {
   const choices = choicesFor(engine, catalog, model);
+  const diagnostics = catalog?.[engine].cli;
   return (
     <div className="px-1 pt-1 pb-3">
       {error && <p className="mb-1.5 px-1 text-[12px] text-warning">{error}</p>}
+      {diagnostics && <p className="mb-1.5 px-1 text-[11px] text-fg-dim">
+        CLI {diagnostics.version ?? '버전 확인 불가'} · {diagnostics.source === 'path' ? 'PATH 우선' : diagnostics.source === 'install-dir' ? '설치 디렉터리' : diagnostics.source === 'fallback' ? 'GUI 실행 경로' : '경로 없음'}
+        {diagnostics.path && <span className="block break-all select-text">{diagnostics.path}</span>}
+      </p>}
       <div role="radiogroup" aria-label={`${label} 모델`} className="max-h-[240px] overflow-y-auto rounded-lg border border-line bg-surface p-1">
         {loading
           ? [0, 1, 2].map((i) => <div key={i} className="m-0.5 h-9 animate-pulse rounded-md bg-sunken" />)
@@ -239,7 +256,8 @@ export function ModelList({
                   key={m.value || '(cli-default)'}
                   role="radio"
                   aria-checked={on}
-                  className="flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left transition-colors duration-150 hover:bg-hover"
+                  disabled={!!m.value && !catalog?.[engine].models.some((listed) => listed.value === m.value)}
+                  className="flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left transition-colors duration-150 hover:bg-hover disabled:opacity-60"
                   onClick={() => onModel(m)}
                 >
                   {on ? <Check size={14} className="mt-0.5 shrink-0 text-accent" /> : <span className="w-[14px] shrink-0" />}

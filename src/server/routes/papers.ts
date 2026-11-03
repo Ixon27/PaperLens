@@ -13,6 +13,7 @@ import { ensureTranslationSentences } from '../tasks/translation-alignment';
 import { deletePaper } from '../tasks/delete-paper';
 import { suggestField, type FieldSuggestion } from '../tasks/suggest-field';
 import type { MadeBy } from '../../shared/models';
+import { searchPapers } from '../paper-search';
 
 export const papers = new Hono();
 
@@ -63,6 +64,8 @@ function paperDto(p: PaperRow) {
     fieldSuggested: isFieldId(p.field_suggested) ? p.field_suggested : null,
     createdAt: p.created_at,
     lastOpenedAt: p.last_opened_at,
+    starred: p.starred === 1,
+    readStatus: p.read_status,
     status: paperStatus(p.id),
     // Running job first; otherwise the latest import job so its final message (e.g. "no OA PDF") stays visible.
     job: jobDto(running ?? (importJob && !p.pdf_file ? importJob : null)),
@@ -71,20 +74,8 @@ function paperDto(p: PaperRow) {
 
 papers.get('/papers', (c) => {
   const q = c.req.query('q')?.trim();
-  let rows: PaperRow[];
-  const order = 'ORDER BY p.last_opened_at DESC NULLS LAST, p.created_at DESC';
-  if (q) {
-    const match = q
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((t) => `"${t.replace(/"/g, '""')}"*`)
-      .join(' AND ');
-    rows = db
-      .prepare(`SELECT p.* FROM papers p JOIN papers_fts f ON f.paper_id = p.id WHERE papers_fts MATCH ? ${order}`)
-      .all(match) as unknown as PaperRow[];
-  } else {
-    rows = db.prepare(`SELECT p.* FROM papers p ${order}`).all() as unknown as PaperRow[];
-  }
+  if (q) return c.json(searchPapers(db, q).map(({ paper, match }) => ({ ...paperDto(paper), searchMatch: match })));
+  const rows = db.prepare('SELECT * FROM papers ORDER BY last_opened_at DESC NULLS LAST, created_at DESC').all() as unknown as PaperRow[];
   return c.json(rows.map(paperDto));
 });
 
@@ -160,7 +151,16 @@ papers.patch('/papers/:id', async (c) => {
     issue?: string | null;
     pages?: string | null;
     doi?: string | null;
-  }>();
+    starred?: unknown;
+    readStatus?: unknown;
+  }>().catch(() => { throw new HttpError(400, '올바른 JSON 변경 내용을 보내세요'); });
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, '논문 변경 내용은 객체여야 합니다');
+  if (body.starred !== undefined && typeof body.starred !== 'boolean') throw new HttpError(400, 'starred는 true 또는 false여야 합니다');
+  if (body.readStatus !== undefined && body.readStatus !== 'unread' && body.readStatus !== 'reading' && body.readStatus !== 'read') {
+    throw new HttpError(400, 'readStatus는 unread, reading 또는 read여야 합니다');
+  }
+  const starred = body.starred === undefined ? p.starred : body.starred ? 1 : 0;
+  const readStatus = body.readStatus === undefined ? p.read_status : body.readStatus;
   const doi = body.doi === undefined ? p.doi : body.doi?.trim() ? normalizeDoi(body.doi.trim().replace(/^https?:\/\/(dx\.)?doi\.org\//i, '')) : null;
   if (doi && doi !== p.doi) {
     const other = paperIdByDoi(doi);
@@ -181,7 +181,7 @@ papers.patch('/papers/:id', async (c) => {
     }
   }
   db.prepare(
-    `UPDATE papers SET title=?, authors=?, year=?, journal=?, volume=?, issue=?, pages=?, doi=?, openalex_id=?, pmid=?, pmcid=?, updated_at=? WHERE id=?`,
+    `UPDATE papers SET title=?, authors=?, year=?, journal=?, volume=?, issue=?, pages=?, doi=?, openalex_id=?, pmid=?, pmcid=?, starred=?, read_status=?, updated_at=? WHERE id=?`,
   ).run(
     title,
     authors,
@@ -194,6 +194,8 @@ papers.patch('/papers/:id', async (c) => {
     ids.openalex_id,
     ids.pmid,
     ids.pmcid,
+    starred,
+    readStatus,
     now(),
     p.id,
   );

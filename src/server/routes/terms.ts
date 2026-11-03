@@ -37,12 +37,15 @@ async function explain(paper: PaperRow, term: string, key: string, page: number 
     field_guide: fieldGuide(resolveField(paper.field, paper.field_suggested)),
   });
   const prompt = fill(P.PROMPT, { term, surrounding: surroundingOf(paper.id, term, page) });
-  const by = resolveModel('quick');
+  const requested = resolveModel('quick');
+  let by = requested;
   let parsed: { ko: string; definition: string; inPaper: string } | null = null;
   for (const p of [prompt, prompt + JSON_ONLY]) {
     let text: string;
     try {
-      ({ text } = await runLlm({ system, prompt: p, profile: 'quick', model: by }));
+      const result = await runLlm({ system, prompt: p, profile: 'quick', model: requested });
+      text = result.text;
+      by = result.by;
     } catch (e) {
       throw new HttpError(502, e instanceof Error ? e.message : '용어 설명을 만들지 못했습니다');
     }

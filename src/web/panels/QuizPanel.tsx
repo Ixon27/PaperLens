@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { QUIZ_BATCH_SIZE, type QuizBatch, type QuizResponse, type QuizSource } from '../../shared/quiz';
 import { api } from '../api';
+import { AiUsageNotice } from '../components/AiUsageNotice';
 import { inputCls, primaryBtnCls, smallBtnCls } from '../components/Dialog';
 import { JobBar, Spinner } from '../components/JobBar';
 import { Markdown } from '../components/Markdown';
@@ -57,6 +58,7 @@ export function QuizPanel() {
       <h2 className="text-[14px] font-semibold text-fg">논문 이해도 퀴즈</h2>
       <p className="text-[12.5px] text-fg-muted">한 번에 정확히 10문항 · 4지선다 · 정답 1개 · 시간 제한 없음</p>
       <p className="text-[12px] text-fg-dim">보기를 고르면 정답·해설·원문 근거를 바로 확인합니다. 생성에는 설정한 깊은 작업 모델을 사용하며, 정답 확인과 다시 풀기에는 AI를 쓰지 않습니다. 선택한 답은 저장하지 않습니다.</p>
+      <AiUsageNotice profile="heavy" requests={1} detail="10문항 묶음을 새로 생성할 때만 AI를 사용합니다." />
       <div className="flex flex-wrap items-center gap-2">
         {batches.length > 0 && <label className="flex items-center gap-2 text-[12px] text-fg-muted">문항 묶음
           <select aria-label="퀴즈 묶음" className={`${inputCls} !w-auto`} value={selected?.id ?? ''} onChange={(e) => setBatchId(e.target.value)}>

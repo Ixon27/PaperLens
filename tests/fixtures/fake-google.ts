@@ -7,6 +7,8 @@ export interface FakeGoogle {
   env: Record<string, string>;
   files: Map<string, { name: string; data: Buffer }>;
   deny: boolean;
+  // 테스트용: 사용자가 동의 화면에서 Drive 항목을 해제한 것처럼 토큰에 Drive 범위를 뺀다.
+  omitDriveScope: boolean;
   revoked: string[];
   // 테스트용: 다음 Drive 요청들이 차례로 이 상태로 실패한다.
   failures: { status: number; reason?: string }[];
@@ -73,7 +75,8 @@ export async function startFakeGoogle(opts: { pageSize?: number; accessTokenTtlS
         Buffer.from(JSON.stringify(ACCOUNT)).toString('base64url'),
         '',
       ].join('.');
-      return json(res, 200, { access_token: issueAccess(), expires_in: ttl, refresh_token: refresh, token_type: 'Bearer', id_token: idToken });
+      const scope = fake.omitDriveScope ? 'openid https://www.googleapis.com/auth/userinfo.email' : 'openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.appdata';
+      return json(res, 200, { access_token: issueAccess(), expires_in: ttl, refresh_token: refresh, token_type: 'Bearer', id_token: idToken, scope });
     }
     if (grant === 'refresh_token' && refreshTokens.has(form.get('refresh_token') ?? '')) {
       return json(res, 200, { access_token: issueAccess(), expires_in: ttl, token_type: 'Bearer' });
@@ -221,6 +224,7 @@ export async function startFakeGoogle(opts: { pageSize?: number; accessTokenTtlS
     },
     files: new Map(),
     deny: false,
+    omitDriveScope: false,
     revoked: [],
     failures: [],
     expireAccessTokens: () => accessTokens.clear(),

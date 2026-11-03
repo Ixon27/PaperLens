@@ -4,10 +4,11 @@ import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { BIN, EMAIL, PATHS } from './config';
 import { HttpError } from './http-error';
+import { preferredEffort } from '../shared/models';
 
 export type Engine = 'claude' | 'codex';
 
-/** Per-engine model + effort for 빠른 작업 (quick) and 깊은 작업 (heavy). Empty effort: no flag. */
+/** Per-engine model + requested effort for quick/heavy; execution checks current CLI support. */
 export interface EngineProfiles {
   quickModel: string;
   heavyModel: string;
@@ -32,7 +33,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   engine: BIN.claude ? 'claude' : BIN.codex ? 'codex' : 'claude',
-  claude: { quickModel: 'sonnet', heavyModel: 'opus', quickEffort: '', heavyEffort: '' },
+  claude: { quickModel: 'sonnet', heavyModel: 'opus', quickEffort: 'low', heavyEffort: 'high' },
   codex: { quickModel: '', heavyModel: '', quickEffort: 'low', heavyEffort: 'high' },
   readerContext: '연구 논문을 한국어로 읽는 연구자. 전공 용어는 원어로 유지하고, 낯선 방법론은 쉽게 설명한다.',
   vaultPath: PATHS.vault,
@@ -70,7 +71,13 @@ export function getSettings(): Settings {
   if (isObject(stored) && isObject(stored.codex) && typeof stored.codex.model === 'string' && stored.codex.quickModel === undefined) {
     stored = { ...stored, codex: { ...stored.codex, quickModel: stored.codex.model, heavyModel: stored.codex.model } };
   }
-  return deepMerge(DEFAULT_SETTINGS, stored);
+  const settings = deepMerge(DEFAULT_SETTINGS, stored);
+  for (const engine of ['claude', 'codex'] as const) {
+    const profiles = settings[engine];
+    if (typeof profiles?.quickEffort === 'string') profiles.quickEffort = preferredEffort(profiles.quickEffort, 'quick');
+    if (typeof profiles?.heavyEffort === 'string') profiles.heavyEffort = preferredEffort(profiles.heavyEffort, 'heavy');
+  }
+  return settings;
 }
 
 export function saveSettings(patch: unknown): Settings {
@@ -88,6 +95,10 @@ export function saveSettings(patch: unknown): Settings {
   const efforts = [merged.claude.quickEffort, merged.claude.heavyEffort, merged.codex.quickEffort, merged.codex.heavyEffort];
   if (!efforts.every((e) => typeof e === 'string' && /^[a-z]*$/.test(e))) {
     throw new HttpError(400, 'AI 작업 수준 값이 올바르지 않습니다');
+  }
+  for (const engine of ['claude', 'codex'] as const) {
+    merged[engine].quickEffort = preferredEffort(merged[engine].quickEffort, 'quick');
+    merged[engine].heavyEffort = preferredEffort(merged[engine].heavyEffort, 'heavy');
   }
   merged.contactEmail = merged.contactEmail.trim();
   if (merged.contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(merged.contactEmail)) {

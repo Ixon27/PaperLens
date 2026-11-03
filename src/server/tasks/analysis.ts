@@ -87,7 +87,7 @@ export function startAnalysis(paperId: string): string {
     const paper = getPaper(paperId);
     if (!paper) throw new Error('논문을 찾을 수 없습니다');
     const settings = getSettings();
-    const by = resolveModel('heavy', settings);
+    const requested = resolveModel('heavy', settings);
 
     const P = loadPrompt('analysis');
     const field = resolveField(paper.field, paper.field_suggested);
@@ -107,6 +107,7 @@ export function startAnalysis(paperId: string): string {
     };
 
     const runCall = async (j: number) => {
+      let by = requested;
       const prompt = head + '\n\n---\n\n' + fill(P['CALL ' + j], {
         methods: fieldPrompt(field, 'METHODS'),
         results: P['RESULTS:default'],
@@ -119,7 +120,9 @@ export function startAnalysis(paperId: string): string {
           parts[j - 1] += t;
           scheduleText();
         };
-        return (await runLlm({ system, prompt: p, profile: 'heavy', model: by, signal: ctx.signal, onDelta })).text;
+        const result = await runLlm({ system, prompt: p, profile: 'heavy', model: requested, signal: ctx.signal, onDelta });
+        by = result.by;
+        return result.text;
       };
       let out = await call(prompt);
       if (!out.includes('####')) out = await call(prompt + RETRY_SUFFIX);

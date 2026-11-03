@@ -3,6 +3,7 @@ import { anchorId, anchorOf, captionLabel, type ExplainAnchor } from '../../shar
 import { FIGURE_KIND_GROUPS, FIGURE_KIND_LABELS, type FigureKind, type FigureSpec } from '../../shared/figure-spec';
 import type { MadeBy } from '../../shared/models';
 import { api, subscribeJob } from '../api';
+import { AiUsageNotice } from '../components/AiUsageNotice';
 import { primaryBtnCls, smallBtnCls } from '../components/Dialog';
 import { JobBar, Spinner } from '../components/JobBar';
 import { PageChip } from '../components/Markdown';
@@ -127,6 +128,7 @@ export function FiguresPanel() {
   return <div className="h-full overflow-y-auto p-4">
     <div className="mb-3 flex items-center gap-2"><h2 className="flex-1 font-semibold text-fg">그림·표 {markers.length}개</h2><button className={smallBtnCls} aria-pressed={big} onClick={() => setPdfMode(big ? 'split' : 'full-panel')}>크게 보기</button></div>
     <p className="mb-4 text-[13px] text-fg-muted">그림마다 AI가 맞는 위젯을 골라 만지며 볼 수 있게 바꿉니다. 그림에서 읽은 값은 근사값으로 표시합니다.</p>
+    <AiUsageNotice profile="heavy" requests={1} detail="그림 하나를 새로 만들 때의 기본 요청 수입니다." />
     {loadError ? <div role="alert" className="text-sm text-danger">{loadError} <button className={smallBtnCls} onClick={() => void load()}>다시 불러오기</button></div>
       : !items || !blocks ? <Spinner text="불러오는 중…" />
       : markers.length === 0 ? <p className="text-[13px] text-fg-muted">인식된 그림·표 캡션이 없습니다. PDF에서 번호가 있는 그림·표 캡션이 추출되어야 위젯을 만들 수 있습니다.</p>

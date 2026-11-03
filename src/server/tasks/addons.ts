@@ -18,7 +18,7 @@ export function startAddons(paperId: string, ids: AddonId[]): string {
     const paper = getPaper(paperId);
     if (!paper) throw new Error('논문을 찾을 수 없습니다');
     const settings = getSettings();
-    const by = resolveModel('heavy', settings);
+    const requested = resolveModel('heavy', settings);
     const P = loadPrompt('analysis');
     const head = fill(P.COMMON, { title: paper.title, context: settings.readerContext });
     const system = paperSystem(paper);
@@ -35,6 +35,7 @@ export function startAddons(paperId: string, ids: AddonId[]): string {
     };
 
     const runCall = async (id: AddonId) => {
+      let by = requested;
       const prompt = head + '\n\n---\n\n' + P['ADDON:' + id];
       const call = async (p: string) => {
         parts[id] = '';
@@ -43,7 +44,9 @@ export function startAddons(paperId: string, ids: AddonId[]): string {
           parts[id] = (parts[id] ?? '') + text;
           scheduleText();
         };
-        return (await runLlm({ system, prompt: p, profile: 'heavy', model: by, signal: ctx.signal, onDelta })).text;
+        const result = await runLlm({ system, prompt: p, profile: 'heavy', model: requested, signal: ctx.signal, onDelta });
+        by = result.by;
+        return result.text;
       };
       let out = await call(prompt);
       if (!out.includes('####')) out = await call(prompt + RETRY_SUFFIX);

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { computeCoverage } from '../../shared/coverage';
 import { api } from '../api';
+import { AiUsageNotice } from '../components/AiUsageNotice';
 import { btnCls, primaryBtnCls, smallGhostBtnCls } from '../components/Dialog';
 import { JobBar, Spinner } from '../components/JobBar';
 import { Markdown } from '../components/Markdown';
@@ -165,6 +166,7 @@ function DeepAnalysisCard() {
         )
       }
     >
+      <AiUsageNotice profile="heavy" requests={3} detail="세 부분을 병렬 작성합니다. 추가 분석은 선택한 항목마다 기본 1회 요청합니다." />
       {body}
     </Card>
   );

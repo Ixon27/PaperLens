@@ -96,7 +96,8 @@ export function startLineage(paperId: string): string {
     ctx.progress(0.35, '계보 정리 중…');
     const line = (c: Candidate) => `${c.node.id} | ${c.node.year ?? ''} | ${c.node.authors} | ${c.node.title} | ${c.node.venue ?? ''} | 인용 ${c.node.citedBy ?? ''}`;
     const settings = getSettings();
-    const by = resolveModel('heavy', settings);
+    const requested = resolveModel('heavy', settings);
+    let by = requested;
     const prompt = fill(loadPrompt('lineage').PROMPT, { title: paper.title, context: settings.readerContext, candidates: candidates.map(line).join('\n'), descendants: descendants.map((d) => `${line(d)} | 초록: ${(d.abstract ?? '').slice(0, 400)}`).join('\n') });
     const system = paperSystem(paper);
     const ancestorIds = new Set(candidates.map((c) => c.node.id));
@@ -105,7 +106,8 @@ export function startLineage(paperId: string): string {
     let error = '';
     for (let i = 0; i < 2; i++) {
       const retry = i ? `\n\n(다시. 직전 출력은 쓸 수 없었다: ${error}. 설명 없이 JSON 객체 하나만 출력하라.)` : '';
-      const result = await runLlm({ system, prompt: prompt + retry, profile: 'heavy', model: by, signal: ctx.signal });
+      const result = await runLlm({ system, prompt: prompt + retry, profile: 'heavy', model: requested, signal: ctx.signal });
+      by = result.by;
       check();
       try {
         const validated = validateLineage(parseJsonLoose<unknown>(result.text), ancestorIds, descendantIds);

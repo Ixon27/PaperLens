@@ -5,7 +5,8 @@ export function engineLabel(e?: string | null): string {
 }
 
 export const EFFORT_LABELS: Record<string, string> = {
-  '': 'auto',
+  '': 'CLI 기본값 (수준 알 수 없음)',
+  auto: 'CLI 기본값 (수준 알 수 없음)',
   minimal: 'minimal',
   low: 'low',
   medium: 'medium',

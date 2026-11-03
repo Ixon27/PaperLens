@@ -17,6 +17,10 @@ import {
 } from 'lucide-react';
 import { FIELD_LABELS } from '../../shared/fields';
 import { api } from '../api';
+import { AiUsageNotice } from '../components/AiUsageNotice';
+import { ComparisonSourceNavigation } from '../components/ComparisonDialog';
+import { PresentationPanel } from '../panels/PresentationPanel';
+import { SearchHighlightNavigation } from '../components/SearchHighlightNavigation';
 import { btnCls, chipCls, ghostBtnCls } from '../components/Dialog';
 import { ExportDialog } from '../components/ExportDialog';
 import { FieldConfirmBar } from '../components/FieldConfirmBar';
@@ -48,6 +52,7 @@ const TABS: { id: TabId; label: string; Icon: LucideIcon; needsText: boolean }[]
   { id: 'figures', label: '그림', Icon: ChartScatter, needsText: true },
   { id: 'mindmap', label: '마인드맵', Icon: Network, needsText: true },
   { id: 'quiz', label: '퀴즈', Icon: GraduationCap, needsText: true },
+  { id: 'presentation', label: '발표 준비', Icon: FileSearch, needsText: true },
   { id: 'lineage', label: '계보', Icon: GitFork, needsText: true },
   { id: 'citations', label: '인용·관련', Icon: Quote, needsText: true },
   { id: 'highlights', label: '하이라이트', Icon: Highlighter, needsText: false },
@@ -59,6 +64,7 @@ const PANELS: Record<TabId, () => ReactNode> = {
   figures: () => <Suspense fallback={<Spinner text="불러오는 중…" />}><FiguresPanel /></Suspense>,
   mindmap: () => <MindmapPanel />,
   quiz: () => <QuizPanel />,
+  presentation: () => <PresentationPanel />,
   lineage: () => <LineagePanel />,
   citations: () => <CitationsPanel />,
   highlights: () => <HighlightsPanel />,
@@ -217,6 +223,8 @@ function WorkspaceInner() {
 
   return (
     <div className="flex h-full flex-col">
+      <ComparisonSourceNavigation />
+      <SearchHighlightNavigation />
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-surface px-3">
         <Link href="/" className={`${ghostBtnCls} shrink-0`}>
           <ArrowLeft size={15} />
@@ -248,6 +256,7 @@ function WorkspaceInner() {
         </button>
       </div>
       {paper.field === null && <FieldConfirmBar key={paper.id} />}
+      {(!paper.status.analysis && paper.field === null) && <div className="border-b border-line px-3 py-2"><AiUsageNotice profile="quick" detail="분야 판별과 분야 확인 후 저장된 결과가 없는 요약·핵심 용어 자동 생성에도 AI 사용량이 듭니다." /></div>}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div ref={bodyRef} className="relative flex min-w-0 flex-1 overflow-hidden">
           <div

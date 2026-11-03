@@ -106,6 +106,40 @@ describe('legacy translated PDF span upgrade', () => {
   });
 });
 
+describe('non-destructive column and caption repair', () => {
+  it('promotes an exact right-column legend without replacing its saved translation', async () => {
+    const source = { ...block(7, 'Plasma was collected later. NS, not significant.'), kind: 'aside' as const };
+    legacyPaper([source]);
+    const translationsBefore = db.prepare('SELECT * FROM translations').all();
+    vi.mocked(extractBlocks).mockResolvedValue({ pageCount: 1, title: null,
+      blocks: [{ ...source, idx: 12, kind: 'caption' }] });
+    await ensureCurrentLayout(paperId);
+    expect(getBlocks(paperId)[0]).toMatchObject({ idx: 7, kind: 'caption', text: source.text });
+    expect(db.prepare('SELECT * FROM translations').all()).toEqual(translationsBefore);
+  });
+
+  it('preserves crossed-column text and translation but clears unsafe old source offsets', async () => {
+    const source = block(7, 'Left opening. Right opening. Left continuation.');
+    legacyPaper([source]);
+    db.prepare('UPDATE blocks SET spans=? WHERE paper_id=?').run(JSON.stringify(source.spans), paperId);
+    const translationsBefore = db.prepare('SELECT * FROM translations').all();
+    vi.mocked(extractBlocks).mockResolvedValue({ pageCount: 1, title: null,
+      blocks: [block(0, 'Left opening. Left continuation.'), block(1, 'Right opening.')] });
+    await ensureCurrentLayout(paperId);
+    expect(getBlocks(paperId)[0]).toMatchObject({ idx: 7, text: source.text, spans: '[]' });
+    expect(db.prepare('SELECT * FROM translations').all()).toEqual(translationsBefore);
+  });
+
+  it('explicit retranslation re-extracts even after a safe metadata upgrade', async () => {
+    legacyPaper([block(7, 'Interleaved source.')]);
+    db.prepare('UPDATE papers SET layout_version=? WHERE id=?').run(LAYOUT_VERSION, paperId);
+    vi.mocked(extractBlocks).mockResolvedValue({ pageCount: 1, title: null, blocks: [block(0, 'Correct source.')] });
+    await ensureCurrentLayout(paperId, { force: true });
+    expect(getBlocks(paperId).map((b) => b.text)).toEqual(['Correct source.']);
+    expect(db.prepare('SELECT * FROM translations').all()).toEqual([]);
+  });
+});
+
 describe('layout rebuild and job guards', () => {
   it.each([false, true])('retains the full cutover for untranslated or forced papers (force=%s)', async (force) => {
     legacyPaper([block(7, 'Old text.')], force);

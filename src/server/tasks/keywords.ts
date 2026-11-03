@@ -16,13 +16,16 @@ export function startKeywords(paperId: string): string {
     const paper = getPaper(paperId);
     if (!paper) throw new Error('논문을 찾을 수 없습니다');
     const P = loadPrompt('terms');
-    const by = resolveModel('quick');
+    const requested = resolveModel('quick');
+    let by = requested;
     const system = paperSystem(paper, { includeRefs: false });
 
     ctx.progress(0.05, '핵심 용어 고르는 중…');
     let entries: KeywordEntry[] = [];
     for (const prompt of [P.KEYWORDS, P.KEYWORDS + JSON_ONLY]) {
-      const { text } = await runLlm({ system, prompt, profile: 'quick', model: by, timeoutMs: TIMEOUT_MS, signal: ctx.signal });
+      const result = await runLlm({ system, prompt, profile: 'quick', model: requested, timeoutMs: TIMEOUT_MS, signal: ctx.signal });
+      const { text } = result;
+      by = result.by;
       try {
         entries = normalizeKeywords(parseJsonLoose<unknown>(text));
       } catch {

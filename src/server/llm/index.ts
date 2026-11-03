@@ -6,11 +6,12 @@ import { BIN, PATHS } from '../config';
 import { HttpError } from '../http-error';
 import { getSettings, rememberLastEngine, type Engine } from '../settings';
 import type { ModelSpec } from '../../shared/models';
+import { catalogModel, preferredEffort, resolveEffort } from '../../shared/models';
 import { stopCli } from './command';
 import { cliSlots } from './semaphore';
 import { runClaude } from './claude';
 import { runCodex } from './codex';
-import { shutdownModelCatalog } from './models';
+import { getEngineModels, shutdownModelCatalog } from './models';
 import { cancelProviderOperations } from '../provider-connect';
 
 export type { Engine, ModelSpec };
@@ -59,6 +60,23 @@ export function resolveModel(profile: Profile, settings = getSettings()): ModelS
   };
 }
 
+async function prepareSelectedModel(profile: Profile, requested: ModelSpec, bin: string): Promise<ModelSpec> {
+  const catalog = await getEngineModels(requested.engine, bin);
+  const model = catalogModel(requested.engine, catalog.models, requested.model);
+  if (!catalog.error && requested.model && !model) {
+    throw new HttpError(400, `저장된 모델 "${requested.model}"이 현재 CLI 목록에 없습니다. 모델을 직접 다시 선택하세요.`);
+  }
+  return { ...requested, effort: resolveEffort(preferredEffort(requested.effort, profile), model) };
+}
+
+/** Metadata-only preparation; never starts an AI turn or changes saved preferences. */
+export async function prepareModel(profile: Profile, requested = resolveModel(profile)): Promise<ModelSpec> {
+  const snapshot = { ...requested };
+  const bin = BIN[snapshot.engine];
+  if (!bin) throw new HttpError(400, '설치되어 있지 않은 CLI입니다');
+  return prepareSelectedModel(profile, snapshot, bin);
+}
+
 /** A client-supplied model choice; model and effort reach CLI arguments, so only plain tokens pass. */
 export function validateModelSpec(v: unknown): ModelSpec {
   const bad = () => new HttpError(400, '모델 설정이 올바르지 않습니다');
@@ -84,11 +102,14 @@ export async function shutdownLlm(): Promise<void> {
 }
 
 export async function runLlm(req: LlmRequest): Promise<LlmResult> {
-  const spec = req.model ?? resolveModel(req.profile);
-  const which = spec.engine;
+  // Capture before awaiting metadata/queue: changes to settings cannot retarget an active request.
+  const requested = { ...(req.model ?? resolveModel(req.profile)) };
+  const which = requested.engine;
   const bin = BIN[which];
   if (!bin) throw new Error(`${which} CLI를 찾을 수 없습니다`);
   const signal = req.signal ? AbortSignal.any([req.signal, shutdown.signal]) : shutdown.signal;
+  if (signal.aborted) throw new Error('취소됨');
+  const spec = await prepareSelectedModel(req.profile, requested, bin);
   if (signal.aborted) throw new Error('취소됨');
 
   const release = await cliSlots.acquire(signal);

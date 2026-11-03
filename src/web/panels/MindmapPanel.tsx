@@ -1,3 +1,4 @@
+import { AiUsageNotice } from '../components/AiUsageNotice';
 import dagre from '@dagrejs/dagre';
 import {
   Controls,
@@ -264,6 +265,7 @@ function MindmapInner() {
     <div ref={container} role={expanded ? 'dialog' : undefined} aria-modal={expanded || undefined} aria-label={expanded ? '마인드맵 전체 화면' : undefined}
       className={expanded ? 'figure-fullscreen no-drag fixed inset-0 z-[100] flex flex-col bg-canvas text-fg' : 'flex h-full flex-col'}>
       <div className="flex shrink-0 flex-col gap-2 border-b border-line px-3 py-2">
+        <AiUsageNotice profile="heavy" requests={1} />
         <div className="flex flex-wrap items-center gap-1.5">
           <button className={btn} disabled={job.running} onClick={() => void generate()}>
             {artifact ? '다시 생성' : '생성'}

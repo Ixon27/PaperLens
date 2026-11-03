@@ -4,9 +4,10 @@ import { ChevronDown } from 'lucide-react';
 import { api } from '../api';
 import type { Settings } from '../types';
 import type { EngineId, ModelSpec } from '../../shared/models';
-import { useModelCatalog } from '../state/models';
+import { preferredEffort, resolveEffort } from '../../shared/models';
+import { refreshCatalog, useModelCatalog } from '../state/models';
 import { formatMadeBy } from './ModelBadge';
-import { EffortControl, EngineTabs, ModelList, choicesFor, effortAfterModelChange, modelLabel } from './ModelChooser';
+import { EffortControl, EngineTabs, ModelList, choicesFor, effortAfterModelChange, effortStatus, modelLabel } from './ModelChooser';
 import { engineLabel } from '../labels';
 import { usePresence } from './motion';
 
@@ -75,7 +76,10 @@ export function ChatModelPicker({
   }, []);
   useEffect(load, [load]);
   useEffect(() => {
-    if (open) load();
+    if (open) {
+      load();
+      void refreshCatalog();
+    }
   }, [open, load]);
 
   useEffect(() => {
@@ -110,13 +114,16 @@ export function ChatModelPicker({
   const defaultSpec = quickSpec(settings, settings.engine);
   const shown = value ?? defaultSpec;
   const engineError = error ?? catalog?.[shown.engine].error ?? null;
+  const choice = choicesFor(shown.engine, catalog, shown.model).find((m) => m.value === shown.model);
+  const requestedEffort = preferredEffort(shown.effort, 'quick');
+  const effectiveEffort = resolveEffort(requestedEffort, choice);
 
   return (
     <div ref={wrapRef} className="relative inline-flex min-w-0 items-center rounded-full border border-line">
       <EffortControl
         label="Chat"
-        value={shown.effort}
-        levels={choicesFor(shown.engine, catalog, shown.model).find((m) => m.value === shown.model)?.efforts ?? []}
+        value={effectiveEffort}
+        levels={choice?.efforts ?? []}
         disabled={disabled}
         onChange={(effort) => onChange({ ...shown, effort })}
       />
@@ -159,7 +166,7 @@ export function ChatModelPicker({
               </span>
               <span className="min-w-0">
                 <span className="block text-[13px] font-medium text-fg">기본 설정 따르기</span>
-                <span className="block truncate text-[11.5px] text-fg-dim">{formatMadeBy(defaultSpec, catalog)}</span>
+                <span className="block truncate text-[11.5px] text-fg-dim">{formatMadeBy(defaultSpec)}</span>
               </span>
             </button>
             <EngineTabs value={shown.engine} engines={engines} onChange={(e) => onChange(quickSpec(settings, e))} />
@@ -171,8 +178,9 @@ export function ChatModelPicker({
                 loading={loading && !catalog}
                 error={engineError}
                 model={shown.model}
-                onModel={(m) => onChange({ engine: shown.engine, model: m.value, effort: effortAfterModelChange(shown.effort, m) })}
+                onModel={(m) => onChange({ engine: shown.engine, model: m.value, effort: effortAfterModelChange(requestedEffort, m) })}
               />
+              <p className="px-2 pb-2 text-[11px] text-fg-dim">{effortStatus(requestedEffort, choice)}</p>
             </div>
           </div>,
           document.body,

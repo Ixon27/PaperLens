@@ -8,7 +8,7 @@ interface CatalogState {
   error: string | null;
 }
 
-/** One CLI model catalog per app session, shared by every picker and model badge. Loading until the first fetch ends. */
+/** Shared metadata snapshot; every picker reopen and provider change explicitly refreshes it. */
 let state: CatalogState = { catalog: null, loading: true, error: null };
 let requested = false;
 let inFlight: Promise<void> | null = null;
@@ -26,7 +26,7 @@ export function refreshCatalog(): Promise<void> {
     try {
       set({ catalog: await api<ModelCatalog>('/api/models'), loading: false });
     } catch (e) {
-      set({ loading: false, error: e instanceof Error ? e.message : '모델 목록을 불러오지 못했습니다' });
+      set({ catalog: null, loading: false, error: e instanceof Error ? e.message : '모델 목록을 불러오지 못했습니다' });
     } finally {
       inFlight = null;
     }
@@ -48,10 +48,10 @@ const subscribe = (l: () => void) => {
 };
 const snapshot = () => state;
 
-export function useModelCatalog(): CatalogState & { refresh(): void } {
+export function useModelCatalog(): CatalogState & { refresh(): Promise<void> } {
   const s = useSyncExternalStore(subscribe, snapshot);
   useEffect(() => {
     if (!requested) void refreshCatalog();
   }, []);
-  return { ...s, refresh: () => void refreshCatalog() };
+  return { ...s, refresh: refreshCatalog };
 }

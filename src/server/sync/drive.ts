@@ -1,4 +1,4 @@
-import type { GoogleAuth } from './google-auth';
+import { MISSING_DRIVE_SCOPE, type GoogleAuth } from './google-auth';
 import type { GoogleConfig } from './google-config';
 
 export interface RemoteFile {
@@ -141,6 +141,7 @@ export class DriveTransport implements SyncTransport {
       }
       const { reason, message } = await errorInfo(res);
       if (res.status === 403 && reason === 'storageQuotaExceeded') throw new Error('Google Drive 저장 공간이 부족합니다');
+      if (res.status === 403 && reason === 'insufficientPermissions') throw new Error(MISSING_DRIVE_SCOPE);
       const rateLimited = res.status === 403 && (reason === 'rateLimitExceeded' || reason === 'userRateLimitExceeded');
       const retryable = res.status === 429 || res.status >= 500 || rateLimited;
       if (!retryable || attempt >= MAX_TRIES) throw new Error(`Google Drive 오류 (${res.status}): ${message}`);

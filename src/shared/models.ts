@@ -14,6 +14,8 @@ export interface ModelChoice {
 export interface EngineModels {
   models: ModelChoice[];
   error: string | null;
+  /** Local executable diagnostics only; never account or authentication output. */
+  cli?: { path: string | null; version: string | null; source: 'path' | 'install-dir' | 'fallback' | null };
 }
 
 export interface ModelCatalog {
@@ -30,9 +32,26 @@ export interface ModelSpec {
   effort: string;
 }
 
-/** Who produced a stored result. model/effort are absent on rows made before model tracking. */
+/** Requested CLI arguments, not measured internal reasoning. Missing fields predate model tracking. */
 export interface MadeBy {
   engine: EngineId;
   model?: string;
   effort?: string;
+}
+
+export const profileEffort = (profile: 'quick' | 'heavy'): string => profile === 'quick' ? 'low' : 'high';
+
+/** An empty legacy value is a profile preference, never an "auto" choice. */
+export const preferredEffort = (value: string, profile: 'quick' | 'heavy'): string =>
+  value && value !== 'auto' ? value : profileEffort(profile);
+
+export function catalogModel(engine: EngineId, models: ModelChoice[], value: string): ModelChoice | undefined {
+  return engine === 'codex' && value === '' ? models.find((model) => model.isDefault) : models.find((model) => model.value === value);
+}
+
+/** Only CLI-advertised levels can become arguments; unknown defaults must not be invented. */
+export function resolveEffort(preferred: string, model?: ModelChoice): string {
+  if (!model) return '';
+  if (preferred && preferred !== 'auto' && model.efforts.includes(preferred)) return preferred;
+  return model.defaultEffort && model.defaultEffort !== 'auto' && model.efforts.includes(model.defaultEffort) ? model.defaultEffort : '';
 }

@@ -2,7 +2,7 @@ import { spawnCli, stopCli } from './command';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { BIN, PATHS } from '../config';
+import { BIN, PATHS, discoverCli } from '../config';
 import type { Engine } from '../settings';
 import type { EngineModels, ModelCatalog, ModelChoice } from '../../shared/models';
 
@@ -23,7 +23,7 @@ type Send = (message: unknown) => void;
 const shutdown = new AbortController();
 let pending: Promise<ModelCatalog> | null = null;
 
-const isEffort = (v: unknown): v is string => typeof v === 'string' && /^[a-z]+$/.test(v);
+const isEffort = (v: unknown): v is string => typeof v === 'string' && v !== 'auto' && /^[a-z]+$/.test(v);
 
 export function appendModels(target: ModelChoice[], seen: Set<string>, data: unknown, engine: Engine): void {
   if (!Array.isArray(data)) throw new Error('CLI 모델 목록 형식이 올바르지 않습니다. CLI를 업데이트하세요.');
@@ -42,8 +42,9 @@ export function appendModels(target: ModelChoice[], seen: Set<string>, data: unk
       label: typeof item.displayName === 'string' && item.displayName.trim() ? item.displayName : value,
       description: typeof item.description === 'string' ? item.description : '',
       ...(typeof item.resolvedModel === 'string' ? { resolvedModel: item.resolvedModel } : {}),
-      efforts,
-      ...(isEffort(item.defaultReasoningEffort) ? { defaultEffort: item.defaultReasoningEffort } : {}),
+      efforts: [...new Set(efforts)],
+      ...(isEffort(item.defaultReasoningEffort ?? item.defaultEffort) && efforts.includes(item.defaultReasoningEffort ?? item.defaultEffort)
+        ? { defaultEffort: item.defaultReasoningEffort ?? item.defaultEffort } : {}),
       ...(item.isDefault === true ? { isDefault: true } : {}),
     });
   }
@@ -130,22 +131,70 @@ async function queryCli(engine: Engine, bin: string): Promise<ModelChoice[]> {
   }
 }
 
-async function discover(engine: Engine): Promise<EngineModels> {
-  const bin = BIN[engine];
-  if (!bin) return { models: [], error: `${engine === 'claude' ? 'Claude' : 'Codex'} CLI가 없습니다. 설치하고 로그인한 뒤 새로고침하세요.` };
-  try { return { models: await queryCli(engine, bin), error: null }; }
-  catch (error) { return { models: [], error: error instanceof Error ? error.message : '모델 목록을 불러오지 못했습니다' }; }
+/** Return only a version token, never arbitrary CLI output (which can include account details). */
+export function parseCliVersion(output: string): string | null {
+  return output.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] ?? null;
+}
+
+async function cliVersion(bin: string): Promise<string | null> {
+  try {
+    const child = spawnCli(bin, ['--version'], {});
+    child.stdin.end();
+    let output = '';
+    child.stdout.on('data', (chunk: Buffer) => { output = (output + chunk.toString()).slice(0, 1024); });
+    child.stderr.resume();
+    const { promise, resolve } = Promise.withResolvers<string | null>();
+    const timer = setTimeout(() => { stopCli(child); resolve(null); }, 5_000);
+    child.once('error', () => { clearTimeout(timer); resolve(null); });
+    child.once('close', code => { clearTimeout(timer); resolve(code === 0 ? parseCliVersion(output) : null); });
+    return await promise;
+  } catch { return null; }
+}
+
+const metadata = new Map<Engine, { bin: string | null; at: number; value: EngineModels }>();
+const discovering = new Map<Engine, { bin: string | null; promise: Promise<EngineModels> }>();
+let generation = 0;
+
+/** Short-lived metadata sharing for preview/execution, keyed to the actual executable. No model requests. */
+export function getEngineModels(engine: Engine, bin = BIN[engine], refresh = false): Promise<EngineModels> {
+  const cached = metadata.get(engine);
+  if (!refresh && cached?.bin === bin && Date.now() - cached.at < 15_000) return Promise.resolve(cached.value);
+  const active = discovering.get(engine);
+  if (active?.bin === bin) return active.promise;
+  const epoch = generation;
+  const location = discoverCli(engine);
+  const source = location?.path === bin ? location.source : null;
+  const promise = (async (): Promise<EngineModels> => {
+    if (!bin) return { models: [], error: `${engine === 'claude' ? 'Claude' : 'Codex'} CLI가 없습니다. 설치하고 로그인한 뒤 새로고침하세요.`, cli: { path: null, version: null, source: null } };
+    const [version, result] = await Promise.all([
+      cliVersion(bin),
+      queryCli(engine, bin).then(models => ({ models, error: null })).catch(error => ({ models: [], error: error instanceof Error ? error.message : '모델 목록을 불러오지 못했습니다' })),
+    ]);
+    return { ...result, cli: { path: bin, version, source } };
+  })().then(value => {
+    if (generation === epoch) metadata.set(engine, { bin, at: Date.now(), value });
+    return value;
+  }).finally(() => { if (discovering.get(engine)?.promise === promise) discovering.delete(engine); });
+  discovering.set(engine, { bin, promise });
+  return promise;
+}
+
+export function invalidateModelCatalog(): void {
+  generation++;
+  metadata.clear();
+  discovering.clear();
+  pending = null;
 }
 
 /** Share overlapping reads only; reopening settings or refreshing asks the CLIs again. */
 export function getModelCatalog(): Promise<ModelCatalog> {
-  pending ??= Promise.all([discover('claude'), discover('codex')])
+  const request: Promise<ModelCatalog> = pending ??= Promise.all([getEngineModels('claude', BIN.claude, true), getEngineModels('codex', BIN.codex, true)])
     .then(([claude, codex]) => ({ claude, codex }))
-    .finally(() => { pending = null; });
-  return pending;
+    .finally(() => { if (pending === request) pending = null; });
+  return request;
 }
 
 export async function shutdownModelCatalog(): Promise<void> {
   shutdown.abort();
-  await pending;
+  await Promise.all([pending, ...[...discovering.values()].map(entry => entry.promise)]);
 }

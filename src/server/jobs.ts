@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { db, now } from './db';
 
-export type JobKind = 'import' | 'translation' | 'analysis' | 'addons' | 'summary' | 'mindmap' | 'references' | 'keywords' | 'figure' | 'lineage' | 'quiz';
+export type JobKind = 'import' | 'translation' | 'analysis' | 'addons' | 'summary' | 'mindmap' | 'references' | 'keywords' | 'figure' | 'lineage' | 'quiz' | 'comparison' | 'presentation';
 export type JobStatus = 'queued' | 'running' | 'done' | 'error';
 
 export interface JobRow {
@@ -75,7 +75,7 @@ export function snapshotOf(row: JobRow, text = '') {
   };
 }
 
-export function activeJob(paperId: string, kind: JobKind, key: string | null = null): JobRow | null {
+export function activeJob(paperId: string | null, kind: JobKind, key: string | null = null): JobRow | null {
   for (const j of live.values()) {
     if (j.row.paper_id === paperId && j.row.kind === kind && j.key === key && (j.row.status === 'queued' || j.row.status === 'running')) return j.row;
   }
@@ -97,7 +97,7 @@ export function activeKeyedJobs(paperId: string, kind: JobKind): { key: string; 
 }
 
 /** Start a job unless the same paper, kind and key is already queued/running. */
-export function startJob(paperId: string, kind: JobKind, runner: (ctx: JobCtx) => Promise<void>, key: string | null = null): string {
+export function startJob(paperId: string | null, kind: JobKind, runner: (ctx: JobCtx) => Promise<void>, key: string | null = null): string {
   const existing = activeJob(paperId, kind, key);
   if (existing) return existing.id;
 

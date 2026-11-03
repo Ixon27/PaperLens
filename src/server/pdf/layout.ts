@@ -34,8 +34,8 @@ export interface Block {
   spans: TextSpan[];
 }
 
-/** Bump when block boundaries, kinds or spans change, so untranslated papers are split again. */
-export const LAYOUT_VERSION = 4;
+/** Bump when block boundaries, kinds or spans change; translated layouts upgrade without deleting saved text. */
+export const LAYOUT_VERSION = 5;
 
 export interface TextViewport {
   width: number;
@@ -259,7 +259,34 @@ function pageLines(content: TextContent, viewport: TextViewport): Line[] {
     } else rows.push({ baseline: run.baseline, size: run.size, runs: [run] });
   }
   // Narrow gutters can be smaller than the blank threshold below; split rows at the gutter itself.
-  const gutter = columnSplit(runs, viewport.width);
+  // Some publishers emit every word as a separate item: no individual run is column-wide,
+  // so infer persistent gutters from complete rows as well as individual long runs.
+  let gutter = columnSplit(runs, viewport.width);
+  if (gutter === null) {
+    let bestScore = 2;
+    for (let step = 30; step <= 70; step++) {
+      const x = viewport.width * step / 100;
+      let score = 0;
+      for (const row of rows) {
+        if (row.runs.some((run) => run.box[0] < x && run.box[2] > x)) continue;
+        const left = row.runs.filter((run) => run.box[2] <= x);
+        const right = row.runs.filter((run) => run.box[0] >= x);
+        if (!left.length || !right.length) continue;
+        const leftEdge = Math.min(...left.map((run) => run.box[0]));
+        const leftEnd = Math.max(...left.map((run) => run.box[2]));
+        const rightEdge = Math.min(...right.map((run) => run.box[0]));
+        const rightEnd = Math.max(...right.map((run) => run.box[2]));
+        if (leftEnd - leftEdge < viewport.width * 0.25 || rightEnd - rightEdge < viewport.width * 0.25 ||
+          rightEdge - leftEnd < row.size * 0.5) continue;
+        score++;
+      }
+      if (score > bestScore || (score === bestScore && gutter !== null &&
+        Math.abs(x - viewport.width / 2) < Math.abs(gutter - viewport.width / 2))) {
+        bestScore = score;
+        gutter = x;
+      }
+    }
+  }
   for (const row of rows) {
     row.runs.sort((a, b) => a.box[0] - b.box[0]);
     const segments: Run[][] = [];
@@ -588,6 +615,28 @@ export function layoutDocument(pages: PageText[]): Block[] {
     });
     pieces.push(...edges.filter((edge) => edge.lines[0].line.box[1] >= firstContent));
   });
+
+  // Legends can occupy both columns below a figure. The right column is not adjacent in
+  // reading order: all of its chart labels precede it. Recognize the continuation by its
+  // vertical band and typography, not by adjacency or punctuation (legends end mid-sentence
+  // at a column break). Keep separate blocks so existing translations can be reused exactly.
+  for (const legend of pieces.filter((piece) => piece.kind === 'caption')) {
+    const first = legend.lines[0].line;
+    const last = legend.lines.at(-1)!.line;
+    for (const candidate of pieces) {
+      if (candidate === legend || candidate.page !== legend.page || candidate.furniture ||
+        candidate.kind === 'heading' || candidate.kind === 'caption') continue;
+      const start = candidate.lines[0].line;
+      const end = candidate.lines.at(-1)!.line;
+      if (Math.abs(start.size - first.size) > 0.3 || candidate.lines.length < 2 ||
+        !/[.!?]/.test(candidate.text) || start.box[1] < first.box[1] - first.size * 0.5) continue;
+      const beside = start.box[0] > first.box[2] && start.box[1] <= last.box[3] &&
+        end.box[1] <= last.box[3] + first.size * 2;
+      const below = Math.abs(start.box[0] - first.box[0]) < first.size &&
+        start.box[1] - last.box[3] < first.size * 2 && start.box[1] >= last.box[1];
+      if (beside || below) candidate.kind = 'caption';
+    }
+  }
 
   // Smaller type is reading text when a heading opens it (methods or abstracts set small); after
   // body text with no heading in between it is a footnote, table note or legend. Prose paragraphs

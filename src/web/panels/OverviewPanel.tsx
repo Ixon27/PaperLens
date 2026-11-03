@@ -2,6 +2,7 @@ import { ChevronDown, Copy, MessageCircle, Plus, RotateCw, Trash2, X } from 'luc
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api';
+import { AiUsageNotice } from '../components/AiUsageNotice';
 import { ChatBubble } from '../components/ChatBubbles';
 import { ChatComposer } from '../components/ChatComposer';
 import { ChatModelPicker } from '../components/ChatModelPicker';
@@ -80,6 +81,7 @@ export function OverviewPanel() {
           stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         }}
       >
+        <div className="px-3 py-2"><AiUsageNotice profile="quick" detail="저장된 결과가 없으면 분야 확인 후 요약·핵심 용어를 자동 생성합니다. 대화별 모델을 지정한 경우 대화는 그 설정을 사용합니다." /></div>
         <KeywordsSection open={open.keywords} onOpenChange={(on) => setOpen('keywords', on)} />
         <SummarySections open={open} setOpen={setOpen} />
         <DiscussionSection talk={talk} open={open.discussion} onOpenChange={(on) => setOpen('discussion', on)} />

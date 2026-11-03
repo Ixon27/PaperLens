@@ -69,7 +69,8 @@ export async function runReferences(paperId: string, ctx: JobCtx) {
   const blocks = sourceBlocks(getBlocks(paperId), paper.page_count ?? 0);
   const chunks = chunkBlocks(blocks.map((b) => b.text));
   const P = loadPrompt('references');
-  const by = resolveModel('quick');
+  const requested = resolveModel('quick');
+  let by: typeof requested | null = null;
   ctx.progress(0, '참고문헌 목록 추출 중');
   // All chunks at once (the CLI semaphore bounds concurrency); one failing call stops the rest.
   const stop = new AbortController();
@@ -78,7 +79,9 @@ export async function runReferences(paperId: string, ctx: JobCtx) {
   const results = await Promise.all(
     chunks.map(async (chunk): Promise<unknown[] | null> => {
       try {
-        const { text } = await runLlm({ system: SYSTEM, prompt: fill(P.PROMPT, { text: chunk }), profile: 'quick', model: by, signal });
+        const result = await runLlm({ system: SYSTEM, prompt: fill(P.PROMPT, { text: chunk }), profile: 'quick', model: requested, signal });
+        const { text } = result;
+        by = result.by;
         let list: unknown[] | null;
         try {
           const parsed = parseJsonLoose<unknown>(text);

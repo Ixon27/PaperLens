@@ -161,7 +161,8 @@ function upgradeBlockSpans(paperId: string, { blocks }: ExtractionResult): void 
     const key = keyOf(block);
     storedCounts.set(key, (storedCounts.get(key) ?? 0) + 1);
   }
-  const update = db.prepare('UPDATE blocks SET spans=? WHERE paper_id=? AND idx=?');
+  const update = db.prepare('UPDATE blocks SET spans=?,lines=?,kind=? WHERE paper_id=? AND idx=?');
+  const clear = db.prepare('UPDATE blocks SET spans=? WHERE paper_id=? AND idx=?');
   for (const block of stored) {
     const key = keyOf(block);
     const candidates = extractedByText.get(key) ?? [];
@@ -171,7 +172,14 @@ function upgradeBlockSpans(paperId: string, { blocks }: ExtractionResult): void 
       candidate.idx === block.idx &&
       candidate.pageW === block.page_w && candidate.pageH === block.page_h &&
       JSON.stringify(candidate.lines) === block.lines);
-    if (matches.length === 1) update.run(JSON.stringify(matches[0].spans), paperId, block.idx);
+    if (matches.length === 1) {
+      const match = matches[0];
+      update.run(JSON.stringify(match.spans), JSON.stringify(match.lines), match.kind, paperId, block.idx);
+    } else {
+      // Old interleaved columns cannot inherit offsets from corrected prose. Keep the saved
+      // source/translation intact, but never highlight an unrelated sentence using stale spans.
+      clear.run('[]', paperId, block.idx);
+    }
   }
   // This layout's metadata was attempted even if some old blocks could not be matched safely.
   db.prepare('UPDATE papers SET layout_version=? WHERE id=?').run(LAYOUT_VERSION, paperId);
@@ -184,14 +192,14 @@ function upgradeBlockSpans(paperId: string, { blocks }: ExtractionResult): void 
  */
 export function ensureCurrentLayout(paperId: string, { force = false }: { force?: boolean } = {}): Promise<void> {
   const paper = getPaper(paperId);
-  if (!paper?.pdf_file || paper.layout_version >= LAYOUT_VERSION) return Promise.resolve();
+  if (!paper?.pdf_file || (!force && paper.layout_version >= LAYOUT_VERSION)) return Promise.resolve();
   if (activeJob(paperId, 'import') || activeJob(paperId, 'translation')) return Promise.resolve();
   let pending = relayouts.get(paperId);
   if (!pending) {
     pending = extractBlocks(pdfPath(paperId))
       .then((extracted) => {
         const current = getPaper(paperId);
-        if (!current?.pdf_file || current.pdf_file !== paper.pdf_file || current.layout_version >= LAYOUT_VERSION) return;
+        if (!current?.pdf_file || current.pdf_file !== paper.pdf_file || (!force && current.layout_version >= LAYOUT_VERSION)) return;
         if (activeJob(paperId, 'import') || activeJob(paperId, 'translation')) return;
         if (!force && db.prepare('SELECT 1 FROM translations WHERE paper_id=? LIMIT 1').get(paperId)) {
           tx(() => upgradeBlockSpans(paperId, extracted));

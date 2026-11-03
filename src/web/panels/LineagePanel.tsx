@@ -4,6 +4,7 @@ import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MadeBy } from '../../shared/models';
 import { api } from '../api';
+import { AiUsageNotice } from '../components/AiUsageNotice';
 import { primaryBtnCls, smallBtnCls } from '../components/Dialog';
 import { JobBar } from '../components/JobBar';
 import { Markdown } from '../components/Markdown';
@@ -150,6 +151,7 @@ function LineageInner() {
   return <div ref={container} role={expanded ? 'dialog' : undefined} aria-modal={expanded || undefined} aria-label={expanded ? '논문 계보 전체 화면' : undefined}
     className={expanded ? 'figure-fullscreen no-drag fixed inset-0 z-[100] flex flex-col overflow-y-auto bg-canvas text-fg' : 'flex h-full flex-col overflow-y-auto'}>
     <div className="shrink-0 border-b border-line px-3 py-2">
+      <AiUsageNotice profile="heavy" detail="인용 데이터 조회와 별도로, 계보 설명 생성에 AI를 사용합니다." />
       {lineage && <div className="flex flex-wrap items-center gap-2">
         <button className={smallBtnCls} aria-pressed={big} onClick={() => setPdfMode(big ? 'split' : 'full-panel')}>크게 보기</button>
         <button ref={button} className={smallBtnCls} aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>{expanded ? '닫기 (Esc)' : '전체 화면'}</button>

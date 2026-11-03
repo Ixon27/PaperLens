@@ -3,10 +3,11 @@ import { ChevronDown, RefreshCw } from 'lucide-react';
 import { api } from '../api';
 import type { Settings } from '../types';
 import type { EngineId, ModelCatalog, ModelChoice } from '../../shared/models';
+import { resolveEffort } from '../../shared/models';
 import { effortLabel, engineLabel } from '../labels';
-import { refreshCatalogAfterProviderChange, useModelCatalog } from '../state/models';
+import { refreshCatalog, refreshCatalogAfterProviderChange, useModelCatalog } from '../state/models';
 import { iconBtnCls } from './Dialog';
-import { EffortControl, EngineTabs, ModelList, choicesFor, effortAfterModelChange, modelLabel } from './ModelChooser';
+import { EffortControl, EngineTabs, ModelList, choicesFor, effortAfterModelChange, effortStatus, modelLabel } from './ModelChooser';
 import { usePresence } from './motion';
 import { useToast } from './Toast';
 
@@ -15,7 +16,7 @@ type Patch = { engine?: EngineId; claude?: Partial<Settings['claude']>; codex?: 
 
 const PROFILES: { id: Profile; title: string; subtitle: string }[] = [
   { id: 'quick', title: '빠른 작업', subtitle: '번역 · 요약 · 핵심 용어 · 용어 설명 · 대화 · 참고문헌 추출 · 분야 판별 · 내보내기 이름' },
-  { id: 'heavy', title: '깊은 작업', subtitle: 'Deep Research · 추가 분석 · 마인드맵 · 퀴즈 생성 · 인터랙티브 그림 · 연구 계보' },
+  { id: 'heavy', title: '깊은 작업', subtitle: 'Deep Research · 추가 분석 · 마인드맵 · 퀴즈 생성 · 인터랙티브 그림 · 연구 계보 · 논문 비교 · 발표 준비' },
 ];
 
 function applyPatch(s: Settings, p: Patch): Settings {
@@ -52,11 +53,13 @@ function ProfileRow({
   onModel(m: ModelChoice): void;
   onEffort(v: string): void;
 }) {
-  const levels = choicesFor(engine, catalog, model).find((m) => m.value === model)?.efforts ?? [];
+  const choice = choicesFor(engine, catalog, model).find((m) => m.value === model);
+  const levels = choice?.efforts ?? [];
+  const effectiveEffort = resolveEffort(effort, choice);
   return (
     <div>
       <div className="flex items-center gap-1 rounded-xl px-2">
-        <EffortControl label={title} value={effort} levels={levels} onChange={onEffort} />
+        <EffortControl label={title} value={effectiveEffort} levels={levels} onChange={onEffort} />
         <button
           className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors duration-150 hover:bg-hover"
           aria-expanded={expanded}
@@ -85,6 +88,7 @@ function ProfileRow({
             model={model}
             onModel={onModel}
           />
+          <p className="px-2 pb-2 text-[11px] text-fg-dim">{effortStatus(effort, choice)}</p>
         </div>
       </div>
     </div>
@@ -161,6 +165,7 @@ export function AiPicker() {
 
   useEffect(() => {
     if (!open) return;
+    void refreshCatalog();
     void api<Record<EngineId, boolean>>('/api/engines')
       .then(setEngines)
       .catch(() => {});
@@ -216,7 +221,10 @@ export function AiPicker() {
   };
   const selectEffort = (profile: Profile, v: string) => void patch({ [engine]: { [effortKey(profile)]: v } });
 
-  const levelsOf = (value: string) => choicesFor(engine, catalog, value).find((m) => m.value === value)?.efforts ?? [];
+  const quickChoice = choicesFor(engine, catalog, profiles.quickModel).find((m) => m.value === profiles.quickModel);
+  const heavyChoice = choicesFor(engine, catalog, profiles.heavyModel).find((m) => m.value === profiles.heavyModel);
+  const quickEffort = resolveEffort(profiles.quickEffort, quickChoice);
+  const heavyEffort = resolveEffort(profiles.heavyEffort, heavyChoice);
   const quickLabel = modelLabel(engine, catalog, profiles.quickModel);
   const heavyLabel = modelLabel(engine, catalog, profiles.heavyModel);
   const engineError = catalogError ?? catalog?.[engine].error ?? null;
@@ -225,25 +233,25 @@ export function AiPicker() {
   return (
     <div ref={wrapRef} className="relative inline-flex items-center rounded-full border border-line bg-raised">
       <span className="pl-2 text-[12px] font-medium text-fg-muted">{engineLabel(engine)}</span>
-      <EffortControl label="빠른 작업" value={profiles.quickEffort} levels={levelsOf(profiles.quickModel)} onChange={(v) => selectEffort('quick', v)} />
+      <EffortControl label="빠른 작업" value={quickEffort} levels={quickChoice?.efforts ?? []} onChange={(v) => selectEffort('quick', v)} />
       <button
         ref={pillRef}
         className="no-drag max-w-[100px] truncate rounded-lg py-1 text-[12px] font-medium text-fg hover:bg-hover"
         aria-label={`빠른 작업 모델: ${quickLabel} · 모델 선택`}
         aria-haspopup="dialog"
         aria-expanded={open && expanded === 'quick'}
-        title={`빠른 작업: ${quickLabel} · ${effortLabel(profiles.quickEffort)}`}
+        title={`빠른 작업: ${quickLabel} · ${effortLabel(quickEffort)}`}
         onClick={() => { openedFromRef.current = 'quick'; setExpanded('quick'); setOpen((o) => !(o && expanded === 'quick')); }}
       >{quickLabel}</button>
       <span aria-hidden="true" className="px-1 text-fg-dim">·</span>
-      <EffortControl label="깊은 작업" value={profiles.heavyEffort} levels={levelsOf(profiles.heavyModel)} onChange={(v) => selectEffort('heavy', v)} />
+      <EffortControl label="깊은 작업" value={heavyEffort} levels={heavyChoice?.efforts ?? []} onChange={(v) => selectEffort('heavy', v)} />
       <button
         ref={heavyPillRef}
         className="no-drag inline-flex max-w-[120px] items-center gap-1 rounded-lg py-1 pr-2 text-[12px] font-medium text-fg hover:bg-hover"
         aria-label={`깊은 작업 모델: ${heavyLabel} · 모델 선택`}
         aria-haspopup="dialog"
         aria-expanded={open && expanded === 'heavy'}
-        title={`깊은 작업: ${heavyLabel} · ${effortLabel(profiles.heavyEffort)}`}
+        title={`깊은 작업: ${heavyLabel} · ${effortLabel(heavyEffort)}`}
         onClick={() => { openedFromRef.current = 'heavy'; setExpanded('heavy'); setOpen((o) => !(o && expanded === 'heavy')); }}
       >
         <span className="truncate">{heavyLabel}</span>

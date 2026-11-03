@@ -45,6 +45,8 @@ CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id, created_at);
 // Columns added after the first release: existing databases gain them in place.
 const columnsOf = (table: string) => new Set((db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
 if (!columnsOf('papers').has('layout_version')) db.exec('ALTER TABLE papers ADD COLUMN layout_version INTEGER NOT NULL DEFAULT 0');
+if (!columnsOf('papers').has('starred')) db.exec('ALTER TABLE papers ADD COLUMN starred INTEGER NOT NULL DEFAULT 0 CHECK(starred IN (0,1))');
+if (!columnsOf('papers').has('read_status')) db.exec("ALTER TABLE papers ADD COLUMN read_status TEXT NOT NULL DEFAULT 'unread' CHECK(read_status IN ('unread','reading','read'))");
 if (!columnsOf('blocks').has('kind')) db.exec("ALTER TABLE blocks ADD COLUMN kind TEXT NOT NULL DEFAULT 'body'");
 if (!columnsOf('blocks').has('spans')) db.exec("ALTER TABLE blocks ADD COLUMN spans TEXT NOT NULL DEFAULT '[]'");
 if (!columnsOf('artifacts').has('made_by')) db.exec('ALTER TABLE artifacts ADD COLUMN made_by TEXT');
@@ -134,6 +136,8 @@ export interface PaperRow {
   created_at: string;
   updated_at: string;
   last_opened_at: string | null;
+  starred: number;
+  read_status: 'unread' | 'reading' | 'read';
 }
 
 export interface BlockRow {

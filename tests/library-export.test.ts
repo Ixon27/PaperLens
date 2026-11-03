@@ -70,3 +70,25 @@ it('rejects missing IDs atomically, treats SQL fragments as IDs, and rejects emp
   const response = await request({ format: 'md' });
   expect(response.status).toBe(400);
 });
+
+it.each([
+  ['bib', 'application/x-bibtex; charset=utf-8', '@misc{'],
+  ['ris', 'application/x-research-info-systems; charset=utf-8', 'TY  - GEN'],
+])('exports %s with correct download headers, scope order and no database writes', async (format, mime, marker) => {
+  const before = db.prepare('SELECT * FROM papers ORDER BY id').all();
+  const response = await request({ format, ids: ['a', 'b'] });
+  expect(response.status).toBe(200);
+  expect(response.headers.get('Content-Type')).toBe(mime);
+  expect(response.headers.get('Content-Disposition')).toContain(`filename="PaperLens-library.${format}"`);
+  expect(response.headers.get('Cache-Control')).toBe('no-store');
+  const selected = await response.text();
+  expect(selected).toContain(marker);
+  expect(selected.indexOf('=evil')).toBeLessThan(selected.indexOf('+SUM'));
+  const all = await (await request({ format })).text();
+  expect(all.indexOf('+SUM')).toBeLessThan(all.indexOf('=evil'));
+  const current = await (await request({ format, ids: ['b'] })).text();
+  expect(current).toContain('+SUM');
+  expect(current).not.toContain('=evil');
+  expect((await request({ format, ids: ['a', 'missing'] })).status).toBe(404);
+  expect(db.prepare('SELECT * FROM papers ORDER BY id').all()).toEqual(before);
+});

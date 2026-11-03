@@ -117,10 +117,12 @@ export async function translateBatch(
   const prompt = fill(P.PAGE, { blocks_json: blocksJson });
 
   let result: Record<string, unknown> | null = null;
+  let actualBy = by;
   for (const p of [prompt, prompt + JSON_ONLY_SUFFIX]) {
-    const { text } = await runLlm({ system, prompt: p, profile: 'quick', model: by, signal });
+    const { text, by: executedBy } = await runLlm({ system, prompt: p, profile: 'quick', model: by, signal });
     try {
       result = parseTranslations(text);
+      actualBy = executedBy;
       break;
     } catch {
       // retry once with the JSON-only suffix
@@ -129,7 +131,7 @@ export async function translateBatch(
   if (!result) return null;
 
   const saved: Record<string, BlockTranslation> = {};
-  const madeBy = JSON.stringify(by);
+  const madeBy = JSON.stringify(actualBy);
   const insert = db.prepare('INSERT OR REPLACE INTO translations(paper_id, block_idx, ko, sentences, made_by) VALUES(?,?,?,?,?)');
   for (const b of batch) {
     const key = String(b.idx);
@@ -139,7 +141,7 @@ export async function translateBatch(
     saved[key] = {
       ko: aligned.ko,
       sentences: aligned.sentences?.map(([start, end, ko]) => ({ start, end, ko })) ?? null,
-      by,
+      by: actualBy,
     };
   }
   return saved;

@@ -66,6 +66,7 @@ export function readPaperRows(paperId: string, sources: BlobSources): PaperRows 
     title: p.title, authors: p.authors, year: p.year, journal: p.journal, volume: p.volume, issue: p.issue, pages: p.pages,
     doi: p.doi, arxiv_id: p.arxiv_id, openalex_id: p.openalex_id, pmid: p.pmid, pmcid: p.pmcid, abstract: p.abstract,
     field: p.field, field_suggested: p.field_suggested, created_at: p.created_at,
+    starred: p.starred, read_status: p.read_status,
     pdf: blobOf(p.pdf_file ? join(PATHS.pdfs, p.pdf_file as string) : null, sources),
   });
   for (const t of db.prepare('SELECT * FROM threads WHERE paper_id=?').all(paperId) as Record<string, unknown>[]) {
@@ -134,19 +135,21 @@ function placeImage(sha: unknown, current: string | null, preferred: string, blo
 
 /** Insert or update the papers row; the DOI is left alone if another paper already has it. */
 export function applyPaper(paperId: string, d: RowData): void {
-  const exists = db.prepare('SELECT 1 FROM papers WHERE id=?').get(paperId) !== undefined;
+  const current = db.prepare('SELECT starred, read_status FROM papers WHERE id=?').get(paperId);
+  const starred = d.starred === 0 || d.starred === 1 ? d.starred : current?.starred ?? 0;
+  const readStatus = d.read_status === 'unread' || d.read_status === 'reading' || d.read_status === 'read' ? d.read_status : current?.read_status ?? 'unread';
   const values = [str(d.title) ?? '제목 없음', str(d.authors) ?? '[]', num(d.year), str(d.journal), str(d.volume), str(d.issue), str(d.pages)];
   const ids = [str(d.arxiv_id), str(d.openalex_id), str(d.pmid), str(d.pmcid), str(d.abstract), str(d.field), str(d.field_suggested)];
   const doi = str(d.doi);
   const doiTaken = doi !== null && db.prepare('SELECT 1 FROM papers WHERE doi=? AND id<>?').get(doi, paperId) !== undefined;
-  if (exists) {
+  if (current) {
     db.prepare(`UPDATE papers SET title=?, authors=?, year=?, journal=?, volume=?, issue=?, pages=?, arxiv_id=?, openalex_id=?, pmid=?, pmcid=?,
-      abstract=?, field=?, field_suggested=?, updated_at=?${doiTaken ? '' : ', doi=?'} WHERE id=?`)
-      .run(...values, ...ids, now(), ...(doiTaken ? [] : [doi]), paperId);
+      abstract=?, field=?, field_suggested=?, starred=?, read_status=?, updated_at=?${doiTaken ? '' : ', doi=?'} WHERE id=?`)
+      .run(...values, ...ids, starred, readStatus, now(), ...(doiTaken ? [] : [doi]), paperId);
   } else {
-    db.prepare(`INSERT INTO papers(id,title,authors,year,journal,volume,issue,pages,arxiv_id,openalex_id,pmid,pmcid,abstract,field,field_suggested,doi,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(paperId, ...values, ...ids, doiTaken ? null : doi, str(d.created_at) ?? now(), now());
+    db.prepare(`INSERT INTO papers(id,title,authors,year,journal,volume,issue,pages,arxiv_id,openalex_id,pmid,pmcid,abstract,field,field_suggested,starred,read_status,doi,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(paperId, ...values, ...ids, starred, readStatus, doiTaken ? null : doi, str(d.created_at) ?? now(), now());
   }
 }
 

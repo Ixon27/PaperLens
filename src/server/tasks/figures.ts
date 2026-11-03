@@ -24,7 +24,8 @@ export function startFigure(paperId: string, anchor: ExplainAnchor, imageDataUrl
       if (!paper) throw new Error('논문을 찾을 수 없습니다');
       const r = resolveAnchor(paperId, anchor);
       const settings = getSettings();
-      const by = resolveModel('heavy', settings);
+      const requested = resolveModel('heavy', settings);
+      let by = requested;
       const field = resolveField(paper.field, paper.field_suggested);
       const prompt = fill(loadPrompt('figures').PROMPT, {
         title: paper.title,
@@ -40,7 +41,8 @@ export function startFigure(paperId: string, anchor: ExplainAnchor, imageDataUrl
       });
       const system = paperSystem(paper, { includeRefs: false });
       const call = async (p: string): Promise<{ spec: FigureSpec } | { error: string }> => {
-        const output = await runLlm({ system, prompt: p, imagePath: imagePath(file), profile: 'heavy', model: by, signal: ctx.signal });
+        const output = await runLlm({ system, prompt: p, imagePath: imagePath(file), profile: 'heavy', model: requested, signal: ctx.signal });
+        by = output.by;
         if (ctx.signal.aborted) throw new Error('취소됨');
         let raw: unknown;
         try {

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { db, isTranslatable, parseAuthors, type BlockRow, type PaperRow } from '../db';
 import { libraryMarkdown, libraryXlsx, parseLibraryExportRequest, type LibraryExportPaper } from '../export/library';
+import { libraryBibtex, libraryRis } from '../export/citations';
 import { HttpError } from '../http-error';
 
 export const libraryExportRoutes = new Hono();
@@ -36,6 +37,10 @@ libraryExportRoutes.post('/library/export', async (c) => {
   if (format === 'md') {
     c.header('Content-Type', 'text/markdown; charset=utf-8');
     return c.body(libraryMarkdown(rows));
+  }
+  if (format === 'bib' || format === 'ris') {
+    c.header('Content-Type', format === 'bib' ? 'application/x-bibtex; charset=utf-8' : 'application/x-research-info-systems; charset=utf-8');
+    return c.body(format === 'bib' ? libraryBibtex(rows) : libraryRis(rows));
   }
   c.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   return c.body(await libraryXlsx(rows));

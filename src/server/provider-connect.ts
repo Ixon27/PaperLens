@@ -5,6 +5,7 @@ import { delimiter, join } from 'node:path';
 import { BIN } from './config';
 import { spawnCli, stopCli } from './llm/command';
 import { saveSettings, type Engine } from './settings';
+import { invalidateModelCatalog } from './llm/models';
 
 type Operation = { kind: 'connect'; phase: 'install' | 'login'; state: 'running' | 'success' | 'error' | 'cancelled'; message: string; codeNeeded: boolean; child: ChildProcessWithoutNullStreams | null; abort: AbortController; timer: NodeJS.Timeout | undefined };
 const operations = new Map<Engine, Operation>();
@@ -82,6 +83,7 @@ function isCurrent(engine: Engine, op: Operation) {
 }
 
 function finish(op: Operation, state: 'success' | 'error' | 'cancelled', message: string) {
+  invalidateModelCatalog();
   op.state = state;
   op.message = message;
   op.codeNeeded = false;
@@ -156,6 +158,7 @@ function startLogin(engine: Engine, op: Operation) {
 }
 
 export function startProviderOperation(engine: Engine) {
+  invalidateModelCatalog();
   if (operations.get(engine)?.state === 'running') throw new Error('이미 작업이 진행 중입니다');
   const installed = !!BIN[engine];
   const op: Operation = {

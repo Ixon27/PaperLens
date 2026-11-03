@@ -288,7 +288,7 @@ threads.post('/threads/:tid/ask', async (c) => {
       const aid = nanoid(12);
       db.prepare(
         'INSERT INTO messages(id,thread_id,role,action,content,quote,page,image_file,engine,made_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-      ).run(aid, thread.id, 'assistant', null, result.text.trim(), null, null, null, by.engine, JSON.stringify(by), now());
+      ).run(aid, thread.id, 'assistant', null, result.text.trim(), null, null, null, result.by.engine, JSON.stringify(result.by), now());
       if (card) {
         const title = result.text
           .split('\n')
@@ -329,7 +329,7 @@ threads.post('/papers/:id/translate-selection', async (c) => {
       const prompt = fill(P.SELECTION, { text, surrounding });
       const by = resolveModel('quick');
       const result = await runLlm({ system, prompt, profile: 'quick', model: by, signal: ac.signal, onDelta: (t) => out.send('delta', { text: t }) });
-      out.send('done', { text: result.text.trim(), by });
+      out.send('done', { text: result.text.trim(), by: result.by });
     } catch (e) {
       out.send('error', { message: e instanceof Error ? e.message : String(e) });
     }

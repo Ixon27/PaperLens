@@ -17,6 +17,11 @@ vi.mock('../src/server/llm/codex', () => ({
     throw new Error("codex 실패 (exit 1): You've hit your usage limit.");
   }),
 }));
+vi.mock('../src/server/llm/models', () => ({
+  getEngineModels: vi.fn(async () => ({ models: [{ value: 'sonnet', label: 'Sonnet', description: '', efforts: [] }], error: null })),
+  shutdownModelCatalog: vi.fn(),
+  invalidateModelCatalog: vi.fn(),
+}));
 
 import { PATHS } from '../src/server/config';
 import { runLlm } from '../src/server/llm/index';
