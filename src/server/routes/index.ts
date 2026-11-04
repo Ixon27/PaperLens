@@ -17,6 +17,7 @@ import { quizRoutes } from './quiz';
 import { libraryExportRoutes } from './library-export';
 import { presentationRoutes } from './presentation';
 import { comparisonRoutes } from './comparison';
+import { layoutTranslationRoutes } from './layout-translation';
 
 export const api = new Hono();
 
@@ -38,3 +39,4 @@ api.route('/', quizRoutes);
 api.route('/', libraryExportRoutes);
 api.route('/', presentationRoutes);
 api.route('/', comparisonRoutes);
+api.route('/', layoutTranslationRoutes);

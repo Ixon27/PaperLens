@@ -1,5 +1,13 @@
 @import 'tailwindcss';
 
+@font-face {
+  font-family: 'PaperLens Noto Sans KR';
+  src: url('./fonts/NotoSansCJKkr-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Theme: light by default; data-theme="dark" (resolved by state/theme.ts) switches tokens. */
 :root {
   color-scheme: light;

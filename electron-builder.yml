@@ -13,10 +13,12 @@ files:
   - dist/**/*
   - prompts/*.md
   - LICENSE
+  - licenses/**/*
   - node_modules/**/*
 asar: true
 asarUnpack:
-  - node_modules/@napi-rs/**/*.node
+  # OCR worker_threads must resolve their complete dependency tree as ordinary filesystem paths.
+  - node_modules/**/*
 npmRebuild: false
 nodeGypRebuild: false
 forceCodeSigning: false

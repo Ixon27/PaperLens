@@ -7,7 +7,7 @@ export interface Author {
   given?: string;
 }
 
-export type JobKind = 'import' | 'translation' | 'analysis' | 'addons' | 'summary' | 'mindmap' | 'references' | 'keywords' | 'figure' | 'lineage' | 'quiz' | 'presentation' | 'comparison';
+export type JobKind = 'import' | 'translation' | 'analysis' | 'addons' | 'summary' | 'mindmap' | 'references' | 'keywords' | 'figure' | 'lineage' | 'quiz' | 'presentation' | 'comparison' | 'layoutTranslation';
 export type JobStatus = 'queued' | 'running' | 'done' | 'error';
 
 export interface JobDto {

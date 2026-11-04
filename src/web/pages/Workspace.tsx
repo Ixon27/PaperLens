@@ -45,6 +45,7 @@ import type { PaperDto } from '../types';
 import { authorShort } from './Library';
 
 const FiguresPanel = lazy(() => import('../panels/FiguresPanel').then((m) => ({ default: m.FiguresPanel })));
+const LayoutTranslationView = lazy(() => import('../panels/LayoutTranslationView').then((m) => ({ default: m.LayoutTranslationView })));
 
 const TABS: { id: TabId; label: string; Icon: LucideIcon; needsText: boolean }[] = [
   { id: 'overview', label: '요약·토론', Icon: MessagesSquare, needsText: true },
@@ -145,6 +146,7 @@ export function Workspace({ id }: { id: string }) {
 function WorkspaceInner() {
   const { paper, reloadPaper, noText } = usePaper();
   const { tab, pdfMode, setPdfMode, showTranslation, setShowTranslation, sidebarOpen } = useViewer();
+  const [layoutTranslation, setLayoutTranslation] = useState(false);
   const [metaOpen, setMetaOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [splits, setSplits] = useState(() => ({
@@ -209,7 +211,8 @@ function WorkspaceInner() {
   };
 
   const meta = [authorShort(paper), paper.year, paper.journal].filter(Boolean).join(' · ');
-  const fullPanel = pdfMode === 'full-panel';
+  const showSidebar = sidebarOpen && !layoutTranslation;
+  const fullPanel = pdfMode === 'full-panel' && !layoutTranslation;
 
   // The hidden reading column keeps its layout (no PDF.js re-render) but must not take focus.
   useEffect(() => {
@@ -244,10 +247,11 @@ function WorkspaceInner() {
         >
           {paper.field ? FIELD_LABELS[paper.field] : '분야 미정'}
         </button>
-        <button className={`${chipCls(showTranslation)} shrink-0`} aria-pressed={showTranslation} onClick={() => setShowTranslation(!showTranslation)}>
+        <button className={`${chipCls(showTranslation && !layoutTranslation)} shrink-0`} aria-pressed={showTranslation && !layoutTranslation} onClick={() => { setShowTranslation(layoutTranslation || !showTranslation); setLayoutTranslation(false); }}>
           <Languages size={14} />
-          번역
+          나란히 번역
         </button>
+        <button className={`${chipCls(layoutTranslation)} shrink-0`} aria-pressed={layoutTranslation} onClick={() => setLayoutTranslation((value) => !value)}>원본 배치 번역</button>
         <button className={`${btnCls} shrink-0`} onClick={() => setExportOpen(true)}>
           내보내기
         </button>
@@ -265,17 +269,17 @@ function WorkspaceInner() {
             className="pr-fade-in flex min-w-0 shrink-0 transition-[transform,opacity] duration-[380ms] ease-in-out motion-reduce:transition-none"
             style={{
               // The panel keeps its minimum width: the reading column gives way on narrow windows.
-              width: sidebarOpen ? `min(calc(${split * 100}% - 4px), calc(100% - ${MIN_PANEL_PX + 8}px))` : '100%',
+              width: showSidebar ? `min(calc(${split * 100}% - 4px), calc(100% - ${MIN_PANEL_PX + 8}px))` : '100%',
               transform: fullPanel ? 'translateX(-32px)' : undefined,
               opacity: fullPanel ? 0 : 1,
               pointerEvents: fullPanel ? 'none' : undefined,
             }}
           >
             <div ref={readRef} className="flex h-full min-w-0 flex-1">
-              <div className="h-full min-w-0 shrink-0" style={{ width: showTranslation ? `calc(${trSplit * 100}% - 4px)` : '100%' }}>
-                {paper.hasPdf ? <PdfPane /> : <PdfDropZone importJob={importJob} />}
+              <div className="h-full min-w-0 shrink-0" style={{ width: showTranslation && !layoutTranslation ? `calc(${trSplit * 100}% - 4px)` : '100%' }}>
+                {paper.hasPdf ? <><div hidden={layoutTranslation} className="h-full"><PdfPane /></div>{layoutTranslation && <Suspense fallback={<Spinner text="원본 배치 번역 불러오는 중…" />}><LayoutTranslationView /></Suspense>}</> : <PdfDropZone importJob={importJob} />}
               </div>
-              {showTranslation && (
+              {showTranslation && !layoutTranslation && (
                 <>
                   <Separator active={dragging === 'reading'} onPointerDown={startReadingDrag} />
                   <div className="h-full min-w-0 flex-1 bg-surface">
@@ -285,10 +289,10 @@ function WorkspaceInner() {
               )}
             </div>
           </div>
-          {sidebarOpen && <Separator active={dragging === 'main'} hidden={fullPanel} onPointerDown={startDrag} />}
+          {showSidebar && <Separator active={dragging === 'main'} hidden={fullPanel} onPointerDown={startDrag} />}
           {/* Closed, the panels stay mounted (hidden) so chats and jobs keep their state. */}
           <div
-            className={`pr-panel-enter absolute inset-y-0 right-0 flex flex-col bg-surface ${sidebarOpen ? '' : 'hidden'} ${
+            className={`pr-panel-enter absolute inset-y-0 right-0 flex flex-col bg-surface ${showSidebar ? '' : 'hidden'} ${
               dragging === 'main' ? '' : 'transition-[width] duration-[380ms] ease-in-out motion-reduce:transition-none'
             }`}
             style={{ width: fullPanel ? '100%' : `calc(${(1 - split) * 100}% - 4px)`, minWidth: MIN_PANEL_PX }}
@@ -309,7 +313,7 @@ function WorkspaceInner() {
             </div>
           </div>
         </div>
-        <SidebarRail />
+        {!layoutTranslation && <SidebarRail />}
       </div>
       {metaOpen && <MetadataDialog paper={paper} onClose={() => setMetaOpen(false)} onSaved={() => void reloadPaper()} />}
       {exportOpen && <ExportDialog onClose={() => setExportOpen(false)} />}
