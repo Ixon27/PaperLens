@@ -12,7 +12,8 @@ translation.post('/papers/:id/translation', async (c) => {
   if (!paper.pdf_file) throw new HttpError(400, 'PDF를 먼저 붙이세요');
   const body = await c.req.json<{ force?: boolean }>().catch(() => ({ force: false }));
   const force = body.force === true;
-  // Re-translating drops every translation, so it is also when an old block layout is replaced.
-  if (force) await ensureCurrentLayout(paper.id, { force: true });
+  // Resume also needs current eligibility (e.g. previously skipped summaries), without erasing
+  // saved Korean. Only an explicit forced retranslation replaces the block layout.
+  await ensureCurrentLayout(paper.id, { force });
   return c.json({ jobId: startTranslation(paper.id, { force }) });
 });

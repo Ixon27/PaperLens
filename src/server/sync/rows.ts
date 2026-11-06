@@ -5,6 +5,7 @@ import { nanoid } from 'nanoid';
 import { PATHS } from '../config';
 import type { SQLInputValue } from 'node:sqlite';
 import { db, now } from '../db';
+import { folderNameKey, normalizeFolderName } from '../folders';
 
 /** The `image_file` column of the first matching row. */
 function imageFileOf(sql: string, ...params: SQLInputValue[]): string | null {
@@ -16,8 +17,8 @@ const removeImageFile = (file: string | null) => {
   if (file) rmSync(join(PATHS.images, file), { force: true });
 };
 
-/** Everything a paper carries across devices. Blocks are re-extracted from the PDF instead. */
-export const ENTITIES = ['paper', 'thread', 'message', 'highlight', 'artifact', 'figure', 'term', 'translation'] as const;
+/** Library folders and everything a paper carries across devices. Blocks are re-extracted from the PDF instead. */
+export const ENTITIES = ['folder', 'paper', 'folder_assignment', 'thread', 'message', 'highlight', 'artifact', 'figure', 'term', 'translation'] as const;
 export type Entity = (typeof ENTITIES)[number];
 export type RowData = Record<string, unknown>;
 export type PaperRows = Map<Entity, Map<string, RowData>>;
@@ -29,6 +30,43 @@ const LOCAL_ONLY_ARTIFACTS: Record<string, true> = { related: true };
 
 export const sha1 = (s: string) => createHash('sha1').update(s).digest('hex');
 export const rowHash = (data: RowData) => sha1(JSON.stringify(data));
+
+/** Library-wide rows use an empty scope, never a paper id. */
+export const FOLDER_SCOPE = '';
+
+export function readFolderRows(): PaperRows {
+  const rows: PaperRows = new Map(ENTITIES.map((e) => [e, new Map()]));
+  for (const f of db.prepare('SELECT id, name, created_at, updated_at FROM folders ORDER BY id').all()) {
+    rows.get('folder')!.set(f.id as string, { name: f.name, created_at: f.created_at, updated_at: f.updated_at });
+  }
+  return rows;
+}
+
+function applyFolder(id: string, data: RowData): void {
+  let name = normalizeFolderName(data.name);
+  const collision = db.prepare('SELECT id, name FROM folders WHERE name_key=? AND id<>?').get(folderNameKey(name), id);
+  const disambiguate = (value: string, key: string) => {
+    const prefix = Array.from(value).slice(0, 58).join('');
+    let attempt = 0;
+    let candidate: string;
+    do {
+      candidate = `${prefix} (${sha1(attempt ? `${key}:${attempt}` : key).slice(0, 16)})`;
+      attempt++;
+    } while (db.prepare('SELECT 1 FROM folders WHERE name_key=? AND id<>?').get(folderNameKey(candidate), key));
+    return candidate;
+  };
+  if (collision) {
+    if (id < String(collision.id)) {
+      const renamed = disambiguate(String(collision.name), String(collision.id));
+      db.prepare('UPDATE folders SET name=?, name_key=? WHERE id=?').run(renamed, folderNameKey(renamed), collision.id);
+    } else {
+      name = disambiguate(name, id);
+    }
+  }
+  db.prepare(`INSERT INTO folders(id,name,name_key,created_at,updated_at) VALUES(?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET name=excluded.name,name_key=excluded.name_key,updated_at=excluded.updated_at`)
+    .run(id, name, folderNameKey(name), str(data.created_at) ?? now(), str(data.updated_at) ?? now());
+}
 
 /** sha256 of a file, cached by size and mtime (PDFs are hashed once, not on every sync). */
 export function fileSha256(path: string): string | null {
@@ -69,6 +107,7 @@ export function readPaperRows(paperId: string, sources: BlobSources): PaperRows 
     starred: p.starred, read_status: p.read_status,
     pdf: blobOf(p.pdf_file ? join(PATHS.pdfs, p.pdf_file as string) : null, sources),
   });
+  rows.get('folder_assignment')!.set('_', { folder_id: p.folder_id ?? null });
   for (const t of db.prepare('SELECT * FROM threads WHERE paper_id=?').all(paperId) as Record<string, unknown>[]) {
     rows.get('thread')!.set(t.id as string, { title: t.title, model: t.model, kind: t.kind, anchor: t.anchor, created_at: t.created_at });
   }
@@ -166,6 +205,19 @@ export function placePdf(paperId: string, sha: string, blobs: BlobFiles): void {
 /** Apply one non-paper row; returns false when it cannot be applied yet (it is retried on a later sync). */
 export function applyRow(paperId: string, entity: Exclude<Entity, 'paper'>, key: string, d: RowData, blobs: BlobFiles, blocks: Map<string, string>): boolean {
   switch (entity) {
+    case 'folder':
+      applyFolder(key, d);
+      return true;
+    case 'folder_assignment': {
+      const folderId = str(d.folder_id);
+      if (folderId && !db.prepare('SELECT 1 FROM folders WHERE id=?').get(folderId)) {
+        const tombstone = db.prepare("SELECT deleted FROM sync_rows WHERE paper_id=? AND entity='folder' AND key=?").get(FOLDER_SCOPE, folderId);
+        if (tombstone?.deleted !== 1) return false;
+      }
+      db.prepare('UPDATE papers SET folder_id=?, updated_at=? WHERE id=?')
+        .run(folderId && db.prepare('SELECT 1 FROM folders WHERE id=?').get(folderId) ? folderId : null, now(), paperId);
+      return true;
+    }
     case 'thread':
       db.prepare(`INSERT INTO threads(id,paper_id,title,model,kind,anchor,created_at) VALUES(?,?,?,?,?,?,?)
         ON CONFLICT(id) DO UPDATE SET title=excluded.title, model=excluded.model, kind=excluded.kind, anchor=excluded.anchor`)
@@ -227,6 +279,13 @@ export function applyRow(paperId: string, entity: Exclude<Entity, 'paper'>, key:
 /** Remove one row (and its image) that another device deleted. */
 export function deleteRow(paperId: string, entity: Exclude<Entity, 'paper'>, key: string): void {
   switch (entity) {
+    case 'folder':
+      db.prepare('UPDATE papers SET folder_id=NULL, updated_at=? WHERE folder_id=?').run(now(), key);
+      db.prepare('DELETE FROM folders WHERE id=?').run(key);
+      return;
+    case 'folder_assignment':
+      db.prepare('UPDATE papers SET folder_id=NULL, updated_at=? WHERE id=?').run(now(), paperId);
+      return;
     case 'thread': {
       const images = db.prepare('SELECT image_file FROM messages WHERE thread_id=? AND image_file IS NOT NULL').all(key).map((r) => r.image_file);
       db.prepare('DELETE FROM threads WHERE id=? AND paper_id=?').run(key, paperId);

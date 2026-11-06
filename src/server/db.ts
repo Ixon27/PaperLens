@@ -93,6 +93,20 @@ export function migratePaperFields(d: DatabaseSync): void {
 
 migratePaperFields(db);
 
+/** Add flat folders without rebuilding papers or changing any existing paper metadata. */
+export function migratePaperFolders(d: DatabaseSync): void {
+  d.exec(`CREATE TABLE IF NOT EXISTS folders(
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, name_key TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+  const columns = d.prepare('PRAGMA table_info(papers)').all() as { name: string }[];
+  if (!columns.some((column) => column.name === 'folder_id')) {
+    d.exec('ALTER TABLE papers ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL');
+  }
+  d.exec('CREATE INDEX IF NOT EXISTS papers_folder ON papers(folder_id)');
+}
+
+migratePaperFolders(db);
+
 db.prepare(`UPDATE jobs SET status='error', error='서버 재시작으로 중단', updated_at=? WHERE status IN ('queued','running')`).run(
   new Date().toISOString(),
 );
@@ -138,6 +152,7 @@ export interface PaperRow {
   last_opened_at: string | null;
   starred: number;
   read_status: 'unread' | 'reading' | 'read';
+  folder_id: string | null;
 }
 
 export interface BlockRow {

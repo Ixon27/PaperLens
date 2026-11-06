@@ -3,13 +3,14 @@ import { FIELD_LABELS, isFieldId } from '../../shared/fields';
 import type { PaperRow, Author } from '../db';
 import { HttpError } from '../http-error';
 
-export const LIBRARY_COLUMNS = ['제목', '저자', '연도', '학술지', 'DOI', '분야', '추가일', '최근 열람일', 'PDF', '번역', '분석'] as const;
+export const LIBRARY_COLUMNS = ['제목', '저자', '연도', '학술지', 'DOI', '분야', '추가일', '최근 열람일', 'PDF', '번역', '분석', '폴더'] as const;
 export type LibraryFormat = 'xlsx' | 'md' | 'bib' | 'ris';
 export interface LibraryExportPaper {
   paper: PaperRow;
   authors: Author[];
   translation: { done: number; total: number };
   analysis: boolean;
+  folderName?: string | null;
 }
 
 export function parseLibraryExportRequest(body: unknown): { format: LibraryFormat; ids?: string[] } {
@@ -26,10 +27,10 @@ export function parseLibraryExportRequest(body: unknown): { format: LibraryForma
   return { format: b.format };
 }
 
-export function libraryCells({ paper: p, authors, translation: tr, analysis }: LibraryExportPaper): (string | number)[] {
+export function libraryCells({ paper: p, authors, translation: tr, analysis, folderName }: LibraryExportPaper): (string | number)[] {
   const translation = tr.total === 0 ? '번역 대상 없음' : tr.done === 0 ? `번역 전 (0/${tr.total})` : tr.done >= tr.total ? `번역 완료 (${tr.done}/${tr.total})` : `번역 중 (${tr.done}/${tr.total})`;
   return [p.title, authors.map((a) => [a.given, a.family].filter(Boolean).join(' ')).join('; '), p.year ?? '', p.journal ?? '', p.doi ?? '',
-    isFieldId(p.field) ? FIELD_LABELS[p.field] : '분야 확인 필요', p.created_at, p.last_opened_at ?? '열지 않음', p.pdf_file ? '있음' : '없음', translation, analysis ? '있음' : '없음'];
+    isFieldId(p.field) ? FIELD_LABELS[p.field] : '분야 확인 필요', p.created_at, p.last_opened_at ?? '열지 않음', p.pdf_file ? '있음' : '없음', translation, analysis ? '있음' : '없음', folderName ?? '미분류'];
 }
 
 // Entities keep literal Markdown punctuation out of the table parser, including backslashes before pipes.
@@ -48,7 +49,7 @@ export function libraryMarkdown(rows: LibraryExportPaper[]): string {
 export async function libraryXlsx(rows: LibraryExportPaper[]): Promise<Uint8Array<ArrayBuffer>> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('논문 목록', { views: [{ state: 'frozen', ySplit: 1 }] });
-  sheet.columns = LIBRARY_COLUMNS.map((header, i) => ({ header, width: [64, 32, 10, 32, 35, 24, 28, 28, 10, 24, 10][i] }));
+  sheet.columns = LIBRARY_COLUMNS.map((header, i) => ({ header, width: [64, 32, 10, 32, 35, 24, 28, 28, 10, 24, 10, 28][i] }));
   for (const row of rows) {
     // ExcelJS treats strings as literal shared strings, never as formula objects.
     sheet.addRow(libraryCells(row));

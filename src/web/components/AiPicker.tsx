@@ -15,7 +15,7 @@ type Profile = 'quick' | 'heavy';
 type Patch = { engine?: EngineId; claude?: Partial<Settings['claude']>; codex?: Partial<Settings['codex']> };
 
 const PROFILES: { id: Profile; title: string; subtitle: string }[] = [
-  { id: 'quick', title: '빠른 작업', subtitle: '번역 · 원본 배치 번역 · 요약 · 핵심 용어 · 용어 설명 · 대화 · 참고문헌 추출 · 분야 판별 · 내보내기 이름' },
+  { id: 'quick', title: '빠른 작업', subtitle: '번역 · 요약 · 핵심 용어 · 용어 설명 · 대화 · 참고문헌 추출 · 분야 판별 · 내보내기 이름' },
   { id: 'heavy', title: '깊은 작업', subtitle: 'Deep Research · 추가 분석 · 마인드맵 · 퀴즈 생성 · 인터랙티브 그림 · 연구 계보 · 논문 비교 · 발표 준비' },
 ];
 

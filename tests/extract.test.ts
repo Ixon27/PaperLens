@@ -149,6 +149,7 @@ describe('PDF.js text layout', () => {
 describe('reading text vs. everything else', () => {
   it('keeps only headings, whole paragraphs and captions as reading text', () => {
     expect(reading(journal)).toEqual([
+      'A Test Article About Layout',
       'Abstract',
       'Cells grow in rich media and we measured how they respond to stress over several days. The response depends on the strain and on the medium that was used for growth.',
       '1. Introduction',
@@ -162,8 +163,8 @@ describe('reading text vs. everything else', () => {
     expect(byText('1. Introduction', journal).kind).toBe('heading');
   });
 
-  it('sets running headers, page numbers, front matter, margin notes and table cells aside', () => {
-    const notReading = ['Journal of Tests', '1 of 2', '2 of 2', 'https://doi.org', 'A Test Article', 'Ann Author', 'Received:', 'Lactobacillus', '99.7%'];
+  it('sets running headers, page numbers, author metadata, margin notes and table cells aside', () => {
+    const notReading = ['Journal of Tests', '1 of 2', '2 of 2', 'https://doi.org', 'Ann Author', 'Received:', 'Lactobacillus', '99.7%'];
     for (const text of notReading) {
       const found = journal.filter((block) => block.text.includes(text));
       expect(found.length, text).toBeGreaterThan(0);
@@ -171,6 +172,63 @@ describe('reading text vs. everything else', () => {
     }
   });
 
+
+  it.each(['Simple Summary', 'Lay Summary', 'Plain-language Summary', 'Author Summary'])(
+    'keeps %s and all its prose before a later abstract, plus a reliable multiline article title',
+    (summaryHeading) => {
+      const page = onePage(textContent([
+        textItem('Article', 36, 735, 28, 10),
+        textItem('Dose-Dependent Effects of Microplastics on', 36, 714, 498, 18, 'heading'),
+        textItem('Growth, Physiology, and Rhizosphere Microbiomes of', 36, 693, 468, 18, 'heading'),
+        textItem('Medicinal Plants', 36, 672, 154, 18, 'italic'),
+        textItem('Ann Author and Bob Writer', 36, 646, 230, 10, 'heading'),
+        textItem('School of Biology, Example University', 166, 602, 300, 8),
+        textItem('Correspondence: author@example.org', 166, 578, 300, 8),
+        textItem(summaryHeading, 166, 541, 130, 10, 'heading'),
+        textItem('Microplastic pollution affects medicinal plants at 0.1–2.0%. We examined', 166, 521, 394, 10),
+        textItem('plant growth and soil communities for 60 days. The effects depended on', 166, 507, 394, 10),
+        textItem('dose, with changes in pH and 16S rRNA abundance.', 166, 493, 290, 10),
+        textItem('Abstract', 166, 459, 50, 10, 'heading'),
+        textItem('We tested the growth response across several doses. All values were', 166, 439, 394, 10),
+        textItem('measured independently and compared with untreated controls.', 166, 425, 394, 10),
+      ]), a4Viewport);
+      expect(byText('Dose-Dependent', page)).toMatchObject({
+        kind: 'heading',
+        text: 'Dose-Dependent Effects of Microplastics on Growth, Physiology, and Rhizosphere Microbiomes of Medicinal Plants',
+      });
+      expect(byText('Dose-Dependent', page).lines).toHaveLength(3);
+      expect(byText(summaryHeading, page).kind).toBe('heading');
+      const summary = byText('Microplastic pollution', page);
+      expect(summary.kind).toBe('body');
+      expect(summary.text).toBe('Microplastic pollution affects medicinal plants at 0.1–2.0%. We examined plant growth and soil communities for 60 days. The effects depended on dose, with changes in pH and 16S rRNA abundance.');
+      expect(summary.lines).toHaveLength(3);
+      expect(summary.spans.map(([, , start, end]) => summary.text.slice(start, end))).toEqual([
+        'Microplastic pollution affects medicinal plants at 0.1–2.0%. We examined',
+        'plant growth and soil communities for 60 days. The effects depended on',
+        'dose, with changes in pH and 16S rRNA abundance.',
+      ]);
+      expect(byText('Abstract', page).kind).toBe('heading');
+      expect(byText('We tested', page).kind).toBe('body');
+      for (const prefix of ['Article', 'Ann Author', 'School of Biology', 'Correspondence:']) {
+        expect(byText(prefix, page).kind).toBe('aside');
+      }
+    },
+  );
+
+  it('does not guess an article title from ordinary author or affiliation lines', () => {
+    const page = onePage(textContent([
+      textItem('Ann Author and Bob Writer', 72, 700, 300),
+      textItem('School of Biology at Example University', 72, 680, 400),
+      textItem('Abstract', 72, 640, 70, 12, 'heading'),
+      textItem('The experiment used untreated controls. Samples were compared.', 72, 620, 440),
+    ]));
+    for (const text of ['Ann Author', 'School of Biology']) {
+      const found = page.filter((block) => block.text.includes(text));
+      expect(found.length, text).toBeGreaterThan(0);
+      expect(found.every((block) => block.kind === 'aside'), text).toBe(true);
+    }
+    expect(page.filter((block) => block.kind === 'heading').map((block) => block.text)).toEqual(['Abstract']);
+  });
   it('continues a paragraph onto the next page, marking the lines that moved', () => {
     const paragraph = byText('Probiotics', journal);
     expect(paragraph.page).toBe(1);

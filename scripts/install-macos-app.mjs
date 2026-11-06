@@ -15,6 +15,13 @@ const source = resolve(process.argv[2] ?? join(root, 'release', process.arch ===
 const app = join(homedir(), 'Applications', `${name}.app`);
 const shortcut = join(homedir(), 'Desktop', `${name}.app`);
 
+/** Optional per-Mac identity (see README). A stable signature keeps Keychain approvals across reinstalls. */
+const localIdentityName = 'PaperLens Local Signing';
+
+function localSigningIdentity() {
+  const listing = execFileSync('/usr/bin/security', ['find-identity', '-p', 'codesigning'], { encoding: 'utf8' });
+  return listing.match(new RegExp(`\\b([0-9A-F]{40}) "${localIdentityName}"`))?.[1] ?? null;
+}
 function bundleIdentifier(path) {
   try {
     return execFileSync('/usr/bin/plutil', ['-extract', 'CFBundleIdentifier', 'raw', '-o', '-', join(path, 'Contents', 'Info.plist')], { encoding: 'utf8' }).trim();
@@ -56,6 +63,13 @@ const backup = join(staging, 'previous.app');
 try {
   // ditto preserves the signed app's bundle metadata and resource forks.
   execFileSync('/usr/bin/ditto', [source, stagedApp], { stdio: 'inherit' });
+  const identity = localSigningIdentity();
+  if (identity) {
+    // Ad-hoc signatures change with every build, so macOS re-asks for the Keychain item each time.
+    execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', identity, stagedApp], { stdio: 'inherit' });
+    execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', stagedApp], { stdio: 'inherit' });
+    console.log(`이 Mac 전용 인증서(${localIdentityName})로 서명했습니다.`);
+  }
   let backedUp = false;
   if (entryExists(app)) { renameSync(app, backup); backedUp = true; }
   try {

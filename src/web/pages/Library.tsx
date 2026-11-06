@@ -1,14 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
-import { CircleAlert, FileText, FileUp, LibraryBig, Loader2, Pencil, Search, Star, Trash2, Upload } from 'lucide-react';
+import {
+  BookOpen,
+  ChevronDown,
+  ChevronRight,
+  CircleAlert,
+  FileText,
+  FileUp,
+  Folder,
+  LibraryBig,
+  Loader2,
+  Monitor,
+  Pencil,
+  Plus,
+  Search,
+  Star,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import { FIELDS, FIELD_LABELS, isFieldId, type FieldId } from '../../shared/fields';
 import { api } from '../api';
 import { btnCls, Dialog, Field, inputCls, primaryBtnCls } from '../components/Dialog';
 import { JobBar } from '../components/JobBar';
-import { LiquidDrop } from '../components/LiquidDrop';
 import { useToast } from '../components/Toast';
 import { ComparisonDialog } from '../components/ComparisonDialog';
-import type { PaperDto, SyncStatusDto } from '../types';
+import type { FolderDto, PaperDto, SyncStatusDto } from '../types';
+import './Library.css';
 
 interface ImportResult {
   paperId: string;
@@ -39,10 +56,11 @@ export function authorShort(p: Pick<PaperDto, 'authors'>): string {
 }
 
 /** Upload PDFs; returns per-file results. */
-export async function uploadPdfs(files: File[], field: FieldId | null): Promise<UploadResult[]> {
+export async function uploadPdfs(files: File[], field: FieldId | null, folderId?: string | null): Promise<UploadResult[]> {
   const fd = new FormData();
   for (const f of files) fd.append('file', f);
   if (field) fd.append('field', field);
+  if (folderId !== undefined) fd.append('folderId', folderId ?? '');
   return api<UploadResult[]>('/api/papers/upload', { method: 'POST', body: fd });
 }
 
@@ -58,7 +76,9 @@ function openedLabel(iso: string | null): string {
   if (days <= 0) return '오늘';
   if (days === 1) return '어제';
   if (days < 7) return `${days}일 전`;
-  return d.getFullYear() === today.getFullYear() ? `${d.getMonth() + 1}월 ${d.getDate()}일` : `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`;
+  return d.getFullYear() === today.getFullYear()
+    ? `${d.getMonth() + 1}월 ${d.getDate()}일`
+    : `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`;
 }
 
 function filterLabel(filter: Filter): string {
@@ -67,9 +87,29 @@ function filterLabel(filter: Filter): string {
   return FIELD_LABELS[filter];
 }
 
-export function Library() {
+export function Library({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
   const [papers, setPapers] = useState<PaperDto[] | null>(null);
   const [allPapers, setAllPapers] = useState<PaperDto[]>([]);
+  const [folders, setFolders] = useState<FolderDto[]>([]);
+  const [folder, setFolder] = useState<string>(() => new URLSearchParams(window.location.search).get('folder') ?? 'all');
+  const [folderEditor, setFolderEditor] = useState<FolderDto | 'new' | null>(null);
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
+  const toggleFolder = (id: string) =>
+    setCollapsedFolders((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const currentFolder = folders.find((item) => item.id === folder);
+  const chooseFolder = (id: string) => {
+    setFolder(id);
+    setSelected(new Set());
+    const url = new URL(window.location.href);
+    if (id === 'all') url.searchParams.delete('folder');
+    else url.searchParams.set('folder', id);
+    window.history.replaceState(null, '', url);
+  };
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [exportOpen, setExportOpen] = useState(false);
   const [comparisonOpen, setComparisonOpen] = useState(false);
@@ -87,11 +127,7 @@ export function Library() {
     return isSort(stored) ? stored : 'recent';
   });
   const [importing, setImporting] = useState(false);
-  const [drop, setDrop] = useState<'idle' | 'over' | 'dropping'>('idle');
-  const [dropAt, setDropAt] = useState<{ x: number; y: number; key: number } | null>(null);
-  // null until the first list arrives; ids seen later get the entry animation.
-  const knownIds = useRef<Set<string> | null>(null);
-  const [newIds, setNewIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [drop, setDrop] = useState<'idle' | 'over'>('idle');
   const fileRef = useRef<HTMLInputElement>(null);
   const [, navigate] = useLocation();
   const toast = useToast();
@@ -102,21 +138,18 @@ export function Library() {
   }, [q]);
 
   const load = useCallback(async () => {
-    const [list, all] = await Promise.all([
+    const [list, all, folderList] = await Promise.all([
       api<PaperDto[]>(`/api/papers${debouncedQ ? `?q=${encodeURIComponent(debouncedQ)}` : ''}`),
       debouncedQ ? api<PaperDto[]>('/api/papers') : Promise.resolve(null),
+      api<FolderDto[]>('/api/folders'),
     ]);
     const complete = all ?? list;
     setAllPapers(complete);
+    setFolders(folderList);
+    setFolder((previous) =>
+      previous === 'all' || previous === 'unfiled' || folderList.some((item) => item.id === previous) ? previous : 'all',
+    );
     setSelected((previous) => new Set([...previous].filter((id) => complete.some((p) => p.id === id))));
-    const known = knownIds.current;
-    if (known === null) {
-      knownIds.current = new Set(list.map((p) => p.id));
-    } else {
-      const fresh = list.filter((p) => !known.has(p.id)).map((p) => p.id);
-      for (const id of fresh) known.add(id);
-      if (fresh.length) setNewIds(new Set(fresh));
-    }
     setPapers(list);
   }, [debouncedQ]);
 
@@ -162,25 +195,40 @@ export function Library() {
   const fieldsShown = FIELDS.filter((f) => counts.byField.has(f) || f === filter);
 
   const visible = useMemo(() => {
-    const list = (papers ?? []).filter((p) => (filter === 'all' ? true : filter === 'unconfirmed' ? p.field === null : p.field === filter)
-      && (organization === 'all' || (organization === 'starred' ? p.starred : p.readStatus === organization)));
+    const list = (papers ?? []).filter(
+      (p) =>
+        (filter === 'all' ? true : filter === 'unconfirmed' ? p.field === null : p.field === filter) &&
+        (organization === 'all' || (organization === 'starred' ? p.starred : p.readStatus === organization)) &&
+        (folder === 'all' || (folder === 'unfiled' ? p.folderId === null : p.folderId === folder)),
+    );
     // The server already orders by last opened, then by date added.
     if (sort === 'added') return [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     if (sort === 'title') return [...list].sort((a, b) => a.title.localeCompare(b.title, 'ko'));
     return list;
-  }, [papers, filter, sort, organization]);
+  }, [papers, filter, sort, organization, folder]);
 
   const sortedAll = useMemo(() => {
     if (sort === 'added') return [...allPapers].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     if (sort === 'title') return [...allPapers].sort((a, b) => a.title.localeCompare(b.title, 'ko'));
     return allPapers;
   }, [allPapers, sort]);
-  const toggleSelected = (id: string) => setSelected((previous) => {
-    const next = new Set(previous);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    return next;
-  });
+  const papersByFolder = useMemo(() => {
+    const grouped = new Map<string, PaperDto[]>();
+    for (const paper of sortedAll) {
+      const key = paper.folderId ?? 'unfiled';
+      const group = grouped.get(key);
+      if (group) group.push(paper);
+      else grouped.set(key, [paper]);
+    }
+    return grouped;
+  }, [sortedAll]);
+  const toggleSelected = (id: string) =>
+    setSelected((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const chooseSort = (value: string) => {
     if (!isSort(value)) return;
@@ -192,7 +240,14 @@ export function Library() {
     if (!input.trim() || importing) return;
     setImporting(true);
     try {
-      const r = await api<ImportResult>('/api/papers/import', { method: 'POST', json: { input, field: importField === 'auto' ? null : importField } });
+      const r = await api<ImportResult>('/api/papers/import', {
+        method: 'POST',
+        json: {
+          input,
+          field: importField === 'auto' ? null : importField,
+          ...(folder !== 'all' ? { folderId: folder === 'unfiled' ? null : folder } : {}),
+        },
+      });
       if (r.duplicate) toast('이미 라이브러리에 있습니다');
       setInput('');
       navigate(`/paper/${r.paperId}`);
@@ -211,7 +266,11 @@ export function Library() {
         return;
       }
       try {
-        const results = await uploadPdfs(pdfs, importField === 'auto' ? null : importField);
+        const results = await uploadPdfs(
+          pdfs,
+          importField === 'auto' ? null : importField,
+          folder === 'all' ? undefined : folder === 'unfiled' ? null : folder,
+        );
         for (const r of results) {
           if (r.error) toast(`${r.name}: ${r.error}`, { tone: 'error' });
           else if (r.duplicate) toast(`이미 라이브러리에 있습니다: ${r.name}`);
@@ -223,18 +282,16 @@ export function Library() {
         toast((e as Error).message, { tone: 'error' });
       }
     },
-    [importField, load, navigate, toast],
+    [importField, folder, load, navigate, toast],
   );
 
   // Window-wide drag & drop overlay.
   useEffect(() => {
     let depth = 0;
-    let settle: ReturnType<typeof setTimeout> | undefined;
     const enter = (e: DragEvent) => {
       if (!isPdfDrag(e)) return;
       e.preventDefault();
       depth++;
-      clearTimeout(settle);
       setDrop('over');
     };
     const over = (e: DragEvent) => {
@@ -249,10 +306,7 @@ export function Library() {
       if (!isPdfDrag(e)) return;
       e.preventDefault();
       depth = 0;
-      setDropAt({ x: e.clientX, y: e.clientY, key: Date.now() });
-      setDrop('dropping');
-      clearTimeout(settle);
-      settle = setTimeout(() => setDrop('idle'), 750);
+      setDrop('idle');
       void doUpload(Array.from(e.dataTransfer?.files ?? []));
     };
     window.addEventListener('dragenter', enter);
@@ -260,7 +314,6 @@ export function Library() {
     window.addEventListener('dragleave', leave);
     window.addEventListener('drop', onDrop);
     return () => {
-      clearTimeout(settle);
       window.removeEventListener('dragenter', enter);
       window.removeEventListener('dragover', over);
       window.removeEventListener('dragleave', leave);
@@ -278,64 +331,206 @@ export function Library() {
     }
   };
 
-  const dropping = drop === 'dropping';
+  const movePapers = async (paperIds: string[], folderId: string | null) => {
+    try {
+      await api('/api/papers/folder', { method: 'PUT', json: { paperIds, folderId } });
+      await load();
+      setSelected(new Set());
+      toast('폴더를 변경했습니다');
+    } catch (e) {
+      toast((e as Error).message, { tone: 'error' });
+    }
+  };
+  const deleteFolder = async () => {
+    if (!currentFolder || !confirm(`“${currentFolder.name}” 폴더를 삭제할까요?\n논문은 삭제되지 않고 미분류로 이동합니다.`)) return;
+    try {
+      await api(`/api/folders/${currentFolder.id}`, { method: 'DELETE' });
+      chooseFolder('all');
+      await load();
+    } catch (e) {
+      toast((e as Error).message, { tone: 'error' });
+    }
+  };
+
   const total = papers?.length ?? 0;
   return (
-    <div className="flex h-full">
-      <aside aria-label="라이브러리 분류" className="hidden w-60 shrink-0 flex-col overflow-y-auto border-r border-line bg-surface px-3 py-5 lg:flex">
-        <SideLabel>라이브러리</SideLabel>
-        <SideItem label="전체 논문" count={total} active={filter === 'all'} onClick={() => setFilter('all')} icon={<LibraryBig size={16} />} />
-        <SideItem
-          label="분야 확인 필요"
-          count={counts.unconfirmed}
-          active={filter === 'unconfirmed'}
-          onClick={() => setFilter('unconfirmed')}
-          icon={<CircleAlert size={16} />}
-        />
-        {fieldsShown.length > 0 && (
-          <>
-            <SideLabel className="mt-6">분야</SideLabel>
-            {fieldsShown.map((f) => (
-              <SideItem
-                key={f}
-                label={FIELD_LABELS[f]}
-                count={counts.byField.get(f) ?? 0}
-                active={filter === f}
-                onClick={() => setFilter(f)}
-                icon={<span className="h-1.5 w-1.5 rounded-full bg-current" />}
-              />
-            ))}
-          </>
-        )}
+    <div className="library-workspace">
+      <aside aria-label="라이브러리 분류" className={`library-sidebar ${sidebarOpen ? '' : 'is-hidden'}`}>
+        <div className="library-machines">
+          <Monitor size={14} />
+          <span>로컬 라이브러리</span>
+          <span className="library-local-status">Local</span>
+        </div>
+        <div className="library-spaces" aria-label="라이브러리 바로가기">
+          <button
+            aria-label="전체 논문 보기"
+            title="전체 논문"
+            aria-pressed={organization === 'all' && folder === 'all'}
+            onClick={() => {
+              chooseFolder('all');
+              setOrganization('all');
+              setFilter('all');
+            }}
+          >
+            <LibraryBig size={16} />
+          </button>
+          <button
+            aria-label="별표 논문 보기"
+            title="별표 논문"
+            aria-pressed={organization === 'starred'}
+            onClick={() => {
+              chooseFolder('all');
+              setOrganization('starred');
+            }}
+          >
+            <Star size={16} />
+          </button>
+          <button
+            aria-label="읽는 중인 논문 보기"
+            title="읽는 중"
+            aria-pressed={organization === 'reading'}
+            onClick={() => {
+              chooseFolder('all');
+              setOrganization('reading');
+            }}
+          >
+            <BookOpen size={16} />
+          </button>
+          <button aria-label="PDF 가져오기" title="PDF 가져오기" onClick={() => fileRef.current?.click()}>
+            <FileUp size={16} />
+          </button>
+        </div>
+        <div className="library-sidebar-scroll">
+          <SideLabel>라이브러리</SideLabel>
+          <SideItem
+            label="전체 논문"
+            count={allPapers.length}
+            active={folder === 'all' && filter === 'all'}
+            onClick={() => {
+              chooseFolder('all');
+              setFilter('all');
+            }}
+            icon={<LibraryBig size={15} />}
+          />
+          <div className="library-section-heading">
+            <SideLabel>폴더</SideLabel>
+            <button aria-label="새 폴더 만들기" title="새 폴더 만들기" onClick={() => setFolderEditor('new')}>
+              <Plus size={15} />
+            </button>
+          </div>
+          {[...folders, { id: 'unfiled', name: '미분류' }].map((item) => {
+            const children = papersByFolder.get(item.id) ?? [];
+            const expanded = !collapsedFolders.has(item.id);
+            return (
+              <section className="library-project" key={item.id}>
+                <div className={`library-project-head ${folder === item.id ? 'is-active' : ''}`}>
+                  <button
+                    className="library-project-toggle"
+                    aria-label={`${item.name} ${expanded ? '접기' : '펼치기'}`}
+                    aria-expanded={expanded}
+                    onClick={() => toggleFolder(item.id)}
+                  >
+                    {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                  </button>
+                  <button className="library-project-select" aria-pressed={folder === item.id} onClick={() => chooseFolder(item.id)}>
+                    <Folder size={14} />
+                    <span>{item.name}</span>
+                    <small>{children.length}</small>
+                  </button>
+                </div>
+                {expanded && (
+                  <div className="library-project-papers">
+                    {children.map((paper) => (
+                      <Link key={paper.id} href={`/paper/${paper.id}`} className="library-paper-link" title={paper.title}>
+                        <FileText size={13} />
+                        <span>{paper.title}</span>
+                        {paper.starred && <Star size={11} className="shrink-0 text-fg-dim" />}
+                      </Link>
+                    ))}
+                    {!children.length && <p className="library-project-empty">논문 없음</p>}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+          {!folders.length && (
+            <button className="library-create-link" onClick={() => setFolderEditor('new')}>
+              새 폴더 만들기
+            </button>
+          )}
+          <SideLabel className="mt-6">분야 필터</SideLabel>
+          <SideItem
+            label="모든 분야"
+            count={total}
+            active={filter === 'all'}
+            onClick={() => setFilter('all')}
+            icon={<LibraryBig size={14} />}
+          />
+          <SideItem
+            label="분야 확인 필요"
+            count={counts.unconfirmed}
+            active={filter === 'unconfirmed'}
+            onClick={() => setFilter('unconfirmed')}
+            icon={<CircleAlert size={16} />}
+          />
+          {fieldsShown.length > 0 && (
+            <>
+              <SideLabel className="mt-6">분야</SideLabel>
+              {fieldsShown.map((f) => (
+                <SideItem
+                  key={f}
+                  label={FIELD_LABELS[f]}
+                  count={counts.byField.get(f) ?? 0}
+                  active={filter === f}
+                  onClick={() => setFilter(f)}
+                  icon={<span className="h-1.5 w-1.5 rounded-full bg-current" />}
+                />
+              ))}
+            </>
+          )}
+        </div>
       </aside>
-      <div className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[1120px] px-8 pt-8 pb-16">
-          <header className="mb-6 flex items-end justify-between gap-4">
+      <div className="library-main min-w-0 flex-1 overflow-y-auto">
+        <div className="library-content">
+          <header className="library-heading">
             <div>
-              <h1 className="text-[26px] leading-tight font-bold tracking-tight text-fg">라이브러리</h1>
-              <p className="mt-1.5 text-[14px] text-fg-muted">논문을 모으고 번역·요약·분석 결과를 이어서 확인하세요.</p>
+              <p className="library-context">라이브러리{folder !== 'all' ? ' / 폴더' : ''}</p>
+              <h1>{currentFolder?.name ?? (folder === 'unfiled' ? '미분류' : '전체 논문')}</h1>
             </div>
-            {papers && !debouncedQ && (
-              <div className="shrink-0 text-[13px] text-fg-muted">
-                논문 <b className="font-semibold text-fg">{total}</b>편
-              </div>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[12px] text-fg-muted">{visible.length}편</span>
+              {currentFolder && (
+                <>
+                  <button className={btnCls} onClick={() => setFolderEditor(currentFolder)}>
+                    <Pencil size={13} />
+                    이름 변경
+                  </button>
+                  <button className={btnCls} onClick={() => void deleteFolder()}>
+                    <Trash2 size={13} />
+                    폴더 삭제
+                  </button>
+                </>
+              )}
+              <button className={btnCls} onClick={() => setFolderEditor('new')}>
+                <Plus size={14} />새 폴더
+              </button>
+            </div>
           </header>
-
-          <section aria-label="새 논문 가져오기" className="rounded-2xl border border-line bg-surface p-5 shadow-card transition-colors duration-150 focus-within:border-line-strong">
-            <div className="flex items-start gap-4">
-              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent">
-                <Upload size={20} />
+          <section aria-label="새 논문 가져오기" className="library-import">
+            <div className="flex items-start gap-3">
+              <div className="pt-1 text-fg-muted">
+                <Upload size={17} />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                  <h2 className="text-[15px] font-semibold text-fg">새 논문 가져오기</h2>
-                  <span className="text-[12px] text-fg-dim">PDF는 창 어디에나 끌어다 놓아도 됩니다</span>
+                  <h2 className="text-[13px] font-medium text-fg">
+                    논문 가져오기{currentFolder ? ` · ${currentFolder.name}` : folder === 'unfiled' ? ' · 미분류' : ''}
+                  </h2>
+                  <span className="text-[12px] text-fg-dim">PDF를 끌어다 놓거나 링크를 입력하세요</span>
                 </div>
-                <p className="mt-0.5 text-[13px] text-fg-muted">DOI·arXiv·OpenAlex 링크를 붙여넣거나 PDF 파일을 선택하세요.</p>
-                <div className="mt-3.5 flex flex-wrap items-center gap-2">
+                <div className="mt-2 flex flex-wrap items-center gap-2">
                   <input
-                    className="h-10 min-w-[240px] flex-1 rounded-lg border border-line-strong bg-surface px-3 text-[13.5px] text-fg outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-fg-dim focus:border-focus focus:ring-2 focus:ring-focus/25"
+                    className={`${inputCls} min-w-[200px] flex-1`}
                     placeholder="예: 10.1038/s41586-020-2649-2 또는 arXiv:1706.03762"
                     aria-label="DOI, arXiv 또는 OpenAlex 링크"
                     value={input}
@@ -356,13 +551,22 @@ export function Library() {
                     }}
                   >
                     <option value="auto">분야 자동 판별</option>
-                    {FIELDS.map((field) => <option key={field} value={field}>{FIELD_LABELS[field]}</option>)}
+                    {FIELDS.map((field) => (
+                      <option key={field} value={field}>
+                        {FIELD_LABELS[field]}
+                      </option>
+                    ))}
                   </select>
                   <button className={`${btnCls} h-10`} onClick={() => fileRef.current?.click()}>
                     <FileUp size={15} />
                     PDF 선택
                   </button>
-                  <button className={`${primaryBtnCls} h-10 min-w-[84px]`} aria-label="가져오기" disabled={!input.trim() || importing} onClick={() => void doImport()}>
+                  <button
+                    className={`${primaryBtnCls} h-10 min-w-[84px]`}
+                    aria-label="가져오기"
+                    disabled={!input.trim() || importing}
+                    onClick={() => void doImport()}
+                  >
                     {importing ? <Loader2 size={16} className="animate-spin" /> : '가져오기'}
                   </button>
                 </div>
@@ -382,8 +586,8 @@ export function Library() {
             />
           </section>
 
-          <section className="mt-9" aria-label="논문 목록">
-            <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <section className="library-list" aria-label="논문 목록">
+            <div className="library-list-toolbar">
               <div>
                 <h2 className="text-[17px] font-semibold text-fg">{filterLabel(filter)}</h2>
                 {papers && (
@@ -393,14 +597,21 @@ export function Library() {
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <select aria-label="읽기 상태 필터" className="h-9 rounded-lg border border-line bg-surface px-2 text-[13px] text-fg" value={organization} onChange={(e) => setOrganization(e.target.value as typeof organization)}>
+                <select
+                  aria-label="읽기 상태 필터"
+                  className="h-9 rounded-lg border border-line bg-surface px-2 text-[13px] text-fg"
+                  value={organization}
+                  onChange={(e) => setOrganization(e.target.value as typeof organization)}
+                >
                   <option value="all">모든 읽기 상태</option>
                   <option value="starred">별표</option>
                   <option value="unread">안 읽음</option>
                   <option value="reading">읽는 중</option>
                   <option value="read">읽음</option>
                 </select>
-                <button className={btnCls} onClick={() => setComparisonOpen(true)}>논문 비교 · 저장 결과</button>
+                <button className={btnCls} onClick={() => setComparisonOpen(true)}>
+                  논문 비교 · 저장 결과
+                </button>
                 <select
                   aria-label="분류"
                   className="h-9 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-fg lg:hidden"
@@ -412,39 +623,88 @@ export function Library() {
                 >
                   <option value="all">전체 논문 ({total})</option>
                   <option value="unconfirmed">분야 확인 필요 ({counts.unconfirmed})</option>
-                  {fieldsShown.map((f) => <option key={f} value={f}>{FIELD_LABELS[f]} ({counts.byField.get(f) ?? 0})</option>)}
+                  {fieldsShown.map((f) => (
+                    <option key={f} value={f}>
+                      {FIELD_LABELS[f]} ({counts.byField.get(f) ?? 0})
+                    </option>
+                  ))}
                 </select>
                 <div className="relative">
                   <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-fg-dim" />
                   <input
-                    className="h-9 w-64 rounded-lg border border-line bg-surface pr-3 pl-9 text-[13px] text-fg outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-fg-dim focus:border-focus focus:ring-2 focus:ring-focus/25"
+                    id="library-search"
+                    className="library-search-input h-9 w-64 rounded-lg border border-line bg-surface pr-3 pl-9 text-[13px] text-fg outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-fg-dim focus:border-focus focus:ring-2 focus:ring-focus/25"
                     placeholder="제목·저자·본문·메모 검색"
                     aria-label="라이브러리 검색"
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
                   />
                 </div>
-                <select aria-label="정렬" className="h-9 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-fg" value={sort} onChange={(e) => chooseSort(e.target.value)}>
-                  {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                <select
+                  aria-label="정렬"
+                  className="h-9 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-fg"
+                  value={sort}
+                  onChange={(e) => chooseSort(e.target.value)}
+                >
+                  {SORTS.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
                 </select>
-                <button className={btnCls} disabled={!allPapers.length} onClick={() => setExportOpen(true)}>목록 내보내기</button>
+                <button className={btnCls} disabled={!allPapers.length} onClick={() => setExportOpen(true)}>
+                  목록 내보내기
+                </button>
                 <span className="text-[12px] text-fg-muted">비교할 논문 2~4편을 선택하세요.</span>
               </div>
             </div>
             {visible.length > 0 && (
-              <div className="mb-3 flex items-center gap-3 text-[13px] text-fg-muted">
+              <div className="mb-3 flex flex-wrap items-center gap-3 text-[13px] text-fg-muted">
                 <label className="flex items-center gap-2">
-                  <input type="checkbox" aria-label="현재 목록 전체 선택" checked={visible.every((p) => selected.has(p.id))}
-                    ref={(node) => { if (node) node.indeterminate = visible.some((p) => selected.has(p.id)) && !visible.every((p) => selected.has(p.id)); }}
-                    onChange={(e) => setSelected((previous) => {
-                      const next = new Set(previous);
-                      for (const p of visible) { if (e.target.checked) next.add(p.id); else next.delete(p.id); }
-                      return next;
-                    })} />
+                  <input
+                    type="checkbox"
+                    aria-label="현재 목록 전체 선택"
+                    checked={visible.every((p) => selected.has(p.id))}
+                    ref={(node) => {
+                      if (node) node.indeterminate = visible.some((p) => selected.has(p.id)) && !visible.every((p) => selected.has(p.id));
+                    }}
+                    onChange={(e) =>
+                      setSelected((previous) => {
+                        const next = new Set(previous);
+                        for (const p of visible) {
+                          if (e.target.checked) next.add(p.id);
+                          else next.delete(p.id);
+                        }
+                        return next;
+                      })
+                    }
+                  />
                   현재 목록 전체 선택 ({visible.length}편)
                 </label>
                 <span>선택 {selected.size}편</span>
-                {selected.size > 0 && <button className="text-accent" onClick={() => setSelected(new Set())}>선택 해제</button>}
+                {selected.size > 0 && (
+                  <button className="text-accent" onClick={() => setSelected(new Set())}>
+                    선택 해제
+                  </button>
+                )}
+                {selected.size > 0 && (
+                  <select
+                    aria-label="선택한 논문 폴더 이동"
+                    className={inputCls}
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) void movePapers([...selected], e.target.value === 'unfiled' ? null : e.target.value);
+                    }}
+                  >
+                    <option value="">폴더로 이동…</option>
+                    <option value="unfiled">미분류</option>
+                    {folders.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             )}
 
@@ -464,7 +724,10 @@ export function Library() {
               </p>
             ) : (
               <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-card">
-                <div aria-hidden="true" className={`hidden border-b border-line bg-sunken/60 px-4 py-2.5 text-[12px] font-medium text-fg-muted ${ROW_GRID}`}>
+                <div
+                  aria-hidden="true"
+                  className={`hidden border-b border-line bg-sunken/60 px-4 py-2.5 text-[12px] font-medium text-fg-muted ${ROW_GRID}`}
+                >
                   <span>논문</span>
                   <span>분야</span>
                   <span>진행</span>
@@ -473,7 +736,16 @@ export function Library() {
                 </div>
                 <ul className="divide-y divide-line">
                   {visible.map((p) => (
-                    <PaperRow key={p.id} p={p} isNew={newIds.has(p.id)} selected={selected.has(p.id)} onSelect={() => toggleSelected(p.id)} onDelete={() => void remove(p)} onChanged={() => void load()} />
+                    <PaperRow
+                      key={p.id}
+                      p={p}
+                      selected={selected.has(p.id)}
+                      onSelect={() => toggleSelected(p.id)}
+                      onDelete={() => void remove(p)}
+                      onChanged={() => void load()}
+                      folders={folders}
+                      onMove={(folderId) => void movePapers([p.id], folderId)}
+                    />
                   ))}
                 </ul>
               </div>
@@ -482,13 +754,23 @@ export function Library() {
         </div>
       </div>
       {exportOpen && <LibraryExportDialog all={sortedAll} visible={visible} selected={selected} onClose={() => setExportOpen(false)} />}
+      {folderEditor && (
+        <FolderNameDialog
+          folder={folderEditor}
+          onClose={() => setFolderEditor(null)}
+          onSaved={async (saved) => {
+            await load();
+            chooseFolder(saved.id);
+            setFolderEditor(null);
+          }}
+        />
+      )}
       {comparisonOpen && <ComparisonDialog paperIds={[...selected]} onClose={() => setComparisonOpen(false)} />}
       {drop !== 'idle' && (
         <div className="pointer-events-none fixed inset-0 z-[80]">
-          <div className={`pr-fade-in absolute inset-0 bg-canvas/60 backdrop-blur-[2px] transition-opacity duration-200 ${dropping ? 'opacity-0' : ''}`} />
-          <LiquidDrop active={drop === 'over'} dropAt={dropAt} />
-          <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-200 ${dropping ? 'opacity-0' : ''}`}>
-            <div className="pr-fade-in flex flex-col items-center rounded-2xl border border-accent/40 bg-raised/90 px-6 py-4 text-center shadow-pop">
+          <div className="absolute inset-0 bg-canvas/75" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="flex flex-col items-center rounded-lg border border-line-strong bg-raised px-6 py-4 text-center">
               <FileUp size={20} className="text-accent" />
               <p className="mt-2 text-[14px] font-medium text-fg">놓으면 가져옵니다</p>
               <p className="mt-0.5 text-[12px] text-fg-muted">여러 PDF도 한 번에 가져옵니다</p>
@@ -500,22 +782,93 @@ export function Library() {
   );
 }
 
-function SideLabel({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`mb-1.5 px-2.5 text-[11.5px] font-semibold tracking-wide text-fg-dim ${className}`}>{children}</div>;
+function FolderNameDialog({
+  folder,
+  onClose,
+  onSaved,
+}: {
+  folder: FolderDto | 'new';
+  onClose(): void;
+  onSaved(folder: FolderDto): Promise<void>;
+}) {
+  const [name, setName] = useState(folder === 'new' ? '' : folder.name);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const save = async () => {
+    if (saving || !name.trim()) return;
+    setSaving(true);
+    setError('');
+    try {
+      const saved = await api<FolderDto>(folder === 'new' ? '/api/folders' : `/api/folders/${folder.id}`, {
+        method: folder === 'new' ? 'POST' : 'PUT',
+        json: { name },
+      });
+      await onSaved(saved);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Dialog title={folder === 'new' ? '새 폴더 만들기' : '폴더 이름 변경'} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+        className="space-y-4"
+      >
+        <Field label="폴더 이름">
+          <input
+            autoFocus
+            className={inputCls}
+            value={name}
+            maxLength={80}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="예: 세포 배양"
+          />
+        </Field>
+        {error && (
+          <p role="alert" className="text-[13px] text-danger">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <button type="button" className={btnCls} onClick={onClose}>
+            취소
+          </button>
+          <button className={primaryBtnCls} disabled={saving || !name.trim()}>
+            {saving ? '저장 중…' : '저장'}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
 }
 
-function SideItem({ label, count, active, onClick, icon }: { label: string; count: number; active: boolean; onClick(): void; icon: ReactNode }) {
+function SideLabel({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return <div className={`library-side-label ${className}`}>{children}</div>;
+}
+
+function SideItem({
+  label,
+  count,
+  active,
+  onClick,
+  icon,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick(): void;
+  icon: ReactNode;
+}) {
   return (
-    <button
-      aria-pressed={active}
-      onClick={onClick}
-      className={`flex h-9 w-full shrink-0 items-center gap-2.5 rounded-lg px-2.5 text-left text-[13.5px] transition-colors duration-150 ${
-        active ? 'bg-accent-soft font-semibold text-accent' : 'text-fg-muted hover:bg-hover hover:text-fg'
-      }`}
-    >
+    <button aria-pressed={active} onClick={onClick} className={`library-nav-item ${active ? 'is-active' : ''}`}>
       <span className="grid w-4 shrink-0 place-items-center">{icon}</span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      <span className={`font-mono text-[12px] ${active ? 'text-accent' : 'text-fg-dim'}`}>{count}</span>
+      <span className="text-[11px] tabular-nums text-fg-dim">{count}</span>
     </button>
   );
 }
@@ -529,15 +882,27 @@ const BADGE_TONES: Record<BadgeTone, string> = {
 };
 
 function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: BadgeTone }) {
-  return <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[12px] font-medium whitespace-nowrap ${BADGE_TONES[tone]}`}>{children}</span>;
+  return (
+    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[12px] font-medium whitespace-nowrap ${BADGE_TONES[tone]}`}>
+      {children}
+    </span>
+  );
 }
 
 function Progress({ p, running }: { p: PaperDto; running: boolean }) {
   const tr = p.status.translation;
   const pct = tr.total ? Math.min(100, Math.round((tr.done / tr.total) * 100)) : 0;
-  const label = !p.hasPdf ? (running ? 'PDF 가져오는 중' : 'PDF 없음') : tr.done === 0 ? '번역 전' : pct === 100 ? '번역 완료' : `번역 ${pct}%`;
+  const label = !p.hasPdf
+    ? running
+      ? 'PDF 가져오는 중'
+      : 'PDF 없음'
+    : tr.done === 0
+      ? '번역 전'
+      : pct === 100
+        ? '번역 완료'
+        : `번역 ${pct}%`;
   return (
-    <div className="min-w-[132px]">
+    <div className="w-full min-w-0 max-w-[180px]">
       <div className={`text-[12.5px] ${!p.hasPdf && !running ? 'text-warning' : tr.done ? 'text-fg' : 'text-fg-muted'}`}>{label}</div>
       {p.hasPdf && (
         <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-sunken">
@@ -554,7 +919,23 @@ function Progress({ p, running }: { p: PaperDto; running: boolean }) {
   );
 }
 
-function PaperRow({ p, isNew, selected, onSelect, onDelete, onChanged }: { p: PaperDto; isNew: boolean; selected: boolean; onSelect(): void; onDelete(): void; onChanged(): void }) {
+function PaperRow({
+  p,
+  selected,
+  onSelect,
+  onDelete,
+  onChanged,
+  folders,
+  onMove,
+}: {
+  p: PaperDto;
+  selected: boolean;
+  onSelect(): void;
+  onDelete(): void;
+  onChanged(): void;
+  folders: FolderDto[];
+  onMove(folderId: string | null): void;
+}) {
   const [updating, setUpdating] = useState(false);
   const updateOrganization = async (patch: { starred?: boolean; readStatus?: PaperDto['readStatus'] }) => {
     setUpdating(true);
@@ -572,42 +953,75 @@ function PaperRow({ p, isNew, selected, onSelect, onDelete, onChanged }: { p: Pa
   const running = !!p.job && (p.job.status === 'running' || p.job.status === 'queued');
   const meta = [authorShort(p), p.year, p.journal].filter(Boolean).join(' · ');
   return (
-    <li className={`group px-4 py-3.5 transition-colors duration-150 hover:bg-hover ${isNew ? 'pr-row-new' : ''}`}>
+    <li
+      className={`group px-4 py-3.5 hover:bg-hover ${selected ? 'bg-sunken outline outline-1 -outline-offset-1 outline-line-strong' : ''}`}
+    >
       <div className={`flex flex-col gap-3 ${ROW_GRID}`}>
         <div className="flex min-w-0 items-start gap-3">
           <input type="checkbox" className="mt-3 shrink-0" aria-label={`${p.title} 선택`} checked={selected} onChange={onSelect} />
-          <button aria-label={`${p.title} 별표`} aria-pressed={p.starred} disabled={updating} className={`mt-2 shrink-0 rounded p-1 hover:bg-hover ${p.starred ? 'text-warning' : 'text-fg-dim'}`} onClick={() => void updateOrganization({ starred: !p.starred })}>
+          <button
+            aria-label={`${p.title} 별표`}
+            aria-pressed={p.starred}
+            disabled={updating}
+            className={`mt-2 shrink-0 rounded p-1 hover:bg-hover ${p.starred ? 'text-warning' : 'text-fg-dim'}`}
+            onClick={() => void updateOrganization({ starred: !p.starred })}
+          >
             <Star size={16} fill={p.starred ? 'currentColor' : 'none'} />
           </button>
-        <Link href={`/paper/${p.id}`} className="flex min-w-0 flex-1 items-start gap-3 rounded-lg">
-          <span
-            className={`mt-0.5 grid h-11 w-9 shrink-0 place-items-center rounded-md border ${
-              p.hasPdf ? 'border-line bg-sunken text-accent' : 'border-warning/30 bg-warning-soft text-warning'
-            }`}
-          >
-            <FileText size={17} />
-          </span>
-          <span className="min-w-0">
-            <span className="line-clamp-2 text-[14.5px] leading-snug font-semibold text-fg">{p.title}</span>
-            {meta && <span className="mt-1 block truncate text-[12.5px] text-fg-muted">{meta}</span>}
-          </span>
-        </Link>
-        {p.searchMatch && <Link href={`/paper/${p.id}${p.searchMatch.highlightId ? `#highlight-${encodeURIComponent(p.searchMatch.highlightId)}` : p.searchMatch.page ? `#p-${p.searchMatch.page}` : ''}`} className="mt-1 block max-w-xs rounded bg-sunken px-2 py-1 text-[12px] text-accent">
-          {({ title: '제목', authors: '저자', body: '본문', highlight: '하이라이트', note: '메모' })[p.searchMatch.source]} · {p.searchMatch.snippet}
-        </Link>}
+          <Link href={`/paper/${p.id}`} className="flex min-w-0 flex-1 items-start gap-3 rounded-lg">
+            <span
+              className={`mt-0.5 grid h-11 w-9 shrink-0 place-items-center rounded-md border ${
+                p.hasPdf ? 'border-line bg-sunken text-accent' : 'border-warning/30 bg-warning-soft text-warning'
+              }`}
+            >
+              <FileText size={17} />
+            </span>
+            <span className="min-w-0">
+              <span className="line-clamp-2 text-[14.5px] leading-snug font-semibold text-fg">{p.title}</span>
+              {meta && <span className="mt-1 block truncate text-[12.5px] text-fg-muted">{meta}</span>}
+            </span>
+          </Link>
+          {p.searchMatch && (
+            <Link
+              href={`/paper/${p.id}${p.searchMatch.highlightId ? `#highlight-${encodeURIComponent(p.searchMatch.highlightId)}` : p.searchMatch.page ? `#p-${p.searchMatch.page}` : ''}`}
+              className="mt-1 block max-w-xs rounded bg-sunken px-2 py-1 text-[12px] text-accent"
+            >
+              {{ title: '제목', authors: '저자', body: '본문', highlight: '하이라이트', note: '메모' }[p.searchMatch.source]} ·{' '}
+              {p.searchMatch.snippet}
+            </Link>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pl-12 xl:contents">
           <div>{p.field ? <Badge tone="accent">{FIELD_LABELS[p.field]}</Badge> : <Badge tone="warning">분야 확인 필요</Badge>}</div>
           <Progress p={p} running={running} />
-          <div className="text-[12.5px] text-fg-muted">
+          <div className="min-w-0 whitespace-nowrap text-[12.5px] text-fg-muted">
             <span className="xl:hidden">최근 열람 · </span>
             {openedLabel(p.lastOpenedAt)}
           </div>
           <div className="flex items-center gap-1 xl:justify-end">
-            <select aria-label={`${p.title} 읽기 상태`} className="h-8 max-w-24 rounded border border-line bg-surface text-[12px] text-fg" value={p.readStatus} disabled={updating} onChange={(e) => void updateOrganization({ readStatus: e.target.value as PaperDto['readStatus'] })}>
+            <select
+              aria-label={`${p.title} 읽기 상태`}
+              className="h-8 max-w-24 rounded border border-line bg-surface text-[12px] text-fg"
+              value={p.readStatus}
+              disabled={updating}
+              onChange={(e) => void updateOrganization({ readStatus: e.target.value as PaperDto['readStatus'] })}
+            >
               <option value="unread">안 읽음</option>
               <option value="reading">읽는 중</option>
               <option value="read">읽음</option>
+            </select>
+            <select
+              aria-label={`${p.title} 폴더 이동`}
+              className="library-row-folder"
+              value={p.folderId ?? ''}
+              onChange={(e) => onMove(e.target.value || null)}
+            >
+              <option value="">미분류</option>
+              {folders.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
             </select>
             <button
               className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-line px-2.5 text-[12.5px] text-fg-muted transition-[background-color,color,transform] duration-150 hover:bg-hover hover:text-fg active:scale-[0.97]"
@@ -633,7 +1047,9 @@ function PaperRow({ p, isNew, selected, onSelect, onDelete, onChanged }: { p: Pa
           {running ? (
             <JobBar
               job={p.job}
-              onCancel={() => void api(`/api/jobs/${p.job!.id}/cancel`, { method: 'POST' }).catch((e: Error) => toast(e.message, { tone: 'error' }))}
+              onCancel={() =>
+                void api(`/api/jobs/${p.job!.id}/cancel`, { method: 'POST' }).catch((e: Error) => toast(e.message, { tone: 'error' }))
+              }
             />
           ) : (
             <div className={`text-[12px] ${p.job.status === 'error' ? 'text-danger' : 'text-fg-muted'}`}>
@@ -675,8 +1091,12 @@ function RenamePaperDialog({ paper, onClose, onChanged }: { paper: PaperDto; onC
       dismissible={!saving}
       footer={(close) => (
         <>
-          <button className={btnCls} disabled={saving} onClick={close}>취소</button>
-          <button className={primaryBtnCls} disabled={saving || !title.trim()} onClick={() => void save()}>저장</button>
+          <button className={btnCls} disabled={saving} onClick={close}>
+            취소
+          </button>
+          <button className={primaryBtnCls} disabled={saving || !title.trim()} onClick={() => void save()}>
+            저장
+          </button>
         </>
       )}
     >
@@ -688,7 +1108,17 @@ function RenamePaperDialog({ paper, onClose, onChanged }: { paper: PaperDto; onC
   );
 }
 
-function LibraryExportDialog({ all, visible, selected, onClose }: { all: PaperDto[]; visible: PaperDto[]; selected: Set<string>; onClose(): void }) {
+function LibraryExportDialog({
+  all,
+  visible,
+  selected,
+  onClose,
+}: {
+  all: PaperDto[];
+  visible: PaperDto[];
+  selected: Set<string>;
+  onClose(): void;
+}) {
   const [scope, setScope] = useState<'all' | 'visible' | 'selected'>('visible');
   const [format, setFormat] = useState<'xlsx' | 'md' | 'bib' | 'ris'>('xlsx');
   const [saving, setSaving] = useState(false);
@@ -701,15 +1131,18 @@ function LibraryExportDialog({ all, visible, selected, onClose }: { all: PaperDt
     try {
       // Desktop's onBeforeSendHeaders supplies the same auth as api(); no token enters renderer state.
       const response = await fetch('/api/library/export', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ format, ids: chosen.map((p) => p.id) }),
       });
       if (!response.ok) {
         let message = `내보내기 실패 (${response.status})`;
         try {
-          const body = await response.json() as { error?: string };
+          const body = (await response.json()) as { error?: string };
           if (body.error) message = body.error;
-        } catch { /* Keep the HTTP error when the response isn't JSON. */ }
+        } catch {
+          /* Keep the HTTP error when the response isn't JSON. */
+        }
         throw new Error(message);
       }
       const blob = await response.blob();
@@ -731,30 +1164,60 @@ function LibraryExportDialog({ all, visible, selected, onClose }: { all: PaperDt
     }
   };
   return (
-    <Dialog title="목록 내보내기" onClose={onClose} dismissible={!saving} footer={(close) => (
-      <>
-        <button className={btnCls} disabled={saving} onClick={close}>취소</button>
-        <button className={primaryBtnCls} disabled={saving || !chosen.length} onClick={() => void download()}>{saving ? '내보내는 중…' : `${chosen.length}편 다운로드`}</button>
-      </>
-    )}>
+    <Dialog
+      title="목록 내보내기"
+      onClose={onClose}
+      dismissible={!saving}
+      footer={(close) => (
+        <>
+          <button className={btnCls} disabled={saving} onClick={close}>
+            취소
+          </button>
+          <button className={primaryBtnCls} disabled={saving || !chosen.length} onClick={() => void download()}>
+            {saving ? '내보내는 중…' : `${chosen.length}편 다운로드`}
+          </button>
+        </>
+      )}
+    >
       <Field label="내보낼 범위" hint="현재 정렬 순서를 유지합니다. 선택은 분류·검색을 바꿔도 유지됩니다.">
-        <select aria-label="내보낼 범위" className={inputCls} value={scope} disabled={saving} onChange={(e) => setScope(e.target.value as typeof scope)}>
+        <select
+          aria-label="내보낼 범위"
+          className={inputCls}
+          value={scope}
+          disabled={saving}
+          onChange={(e) => setScope(e.target.value as typeof scope)}
+        >
           <option value="all">라이브러리 전체 ({all.length}편)</option>
           <option value="visible">현재 분류·검색 결과 ({visible.length}편)</option>
           <option value="selected">선택한 논문 ({all.filter((p) => selected.has(p.id)).length}편)</option>
         </select>
       </Field>
       <Field label="파일 형식">
-        <select aria-label="내보낼 파일 형식" className={inputCls} value={format} disabled={saving} onChange={(e) => setFormat(e.target.value as typeof format)}>
+        <select
+          aria-label="내보낼 파일 형식"
+          className={inputCls}
+          value={format}
+          disabled={saving}
+          onChange={(e) => setFormat(e.target.value as typeof format)}
+        >
           <option value="xlsx">Excel (.xlsx)</option>
           <option value="md">Markdown 표 (.md)</option>
           <option value="bib">BibTeX (.bib)</option>
           <option value="ris">RIS (.ris)</option>
         </select>
       </Field>
-      <p className="text-[13px] text-fg-muted">{format === 'bib' || format === 'ris' ? '저장된 서지정보로 인용 파일을 만듭니다. 없는 정보는 생략합니다. Zotero 등의 가져오기 기능에서 열 수 있으며 직접 동기화는 아닙니다.' : '제목·저자·연도·학술지·DOI·분야·추가일·최근 열람일·PDF·번역·분석 상태를 내보냅니다. 최근 열람은 읽기 완료를 뜻하지 않습니다.'} AI를 사용하지 않습니다.</p>
+      <p className="text-[13px] text-fg-muted">
+        {format === 'bib' || format === 'ris'
+          ? '저장된 서지정보로 인용 파일을 만듭니다. 없는 정보는 생략합니다. Zotero 등의 가져오기 기능에서 열 수 있으며 직접 동기화는 아닙니다.'
+          : '제목·저자·연도·학술지·DOI·분야·추가일·최근 열람일·PDF·번역·분석 상태를 내보냅니다. 최근 열람은 읽기 완료를 뜻하지 않습니다.'}{' '}
+        AI를 사용하지 않습니다.
+      </p>
       {!chosen.length && <p className="text-[13px] text-fg-muted">내보낼 논문이 없습니다. 범위를 바꾸거나 논문을 선택하세요.</p>}
-      {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
+      {error && (
+        <p role="alert" className="text-[13px] text-danger">
+          {error}
+        </p>
+      )}
     </Dialog>
   );
 }

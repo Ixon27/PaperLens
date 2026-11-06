@@ -33,26 +33,6 @@ ctx.fillStyle = '#2a64c8';
 ctx.fillRect(0, 0, 1, 1);
 assert.deepEqual([...ctx.getImageData(0, 0, 1, 1).data], [42, 100, 200, 255]);
 
-// OCR must work entirely from installed files, including worker_threads and traineddata.
-const ocrRequire = createRequire(join(resources, 'app.asar.unpacked', 'package.json'));
-const { createWorker } = ocrRequire('tesseract.js');
-const ocrCanvas = createCanvas(650, 120);
-const ocrContext = ocrCanvas.getContext('2d');
-ocrContext.fillStyle = '#fff'; ocrContext.fillRect(0, 0, 650, 120);
-ocrContext.font = '48px sans-serif'; ocrContext.fillStyle = '#000';
-ocrContext.fillText('Paper Reader', 30, 80);
-const ocr = await within(createWorker('eng', 1, {
-  workerPath: join(dirname(ocrRequire.resolve('tesseract.js/package.json')), 'src/worker-script/node/index.js'),
-  corePath: dirname(ocrRequire.resolve('tesseract.js-core/package.json')),
-  langPath: join(dirname(ocrRequire.resolve('@tesseract.js-data/eng/package.json')), '4.0.0'),
-  gzip: true, cacheMethod: 'none',
-}));
-try {
-  const recognized = await within(ocr.recognize(ocrCanvas.toBuffer('image/png')));
-  assert.match(recognized.data.text, /Paper\s+Reader/);
-  console.log(JSON.stringify({ packagedOfflineOcr: recognized.data.text.trim() }));
-} finally { await ocr.terminate(); }
-
 // Generated public-domain fixture: actual PDF parsing, worker loading and native-addon resolution.
 const stream = 'BT /F1 12 Tf 72 720 Td (Paper Reader) Tj ET';
 const objects = [

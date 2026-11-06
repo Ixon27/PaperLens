@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { db, getBlocks, getPaper } from '../src/server/db';
-import { activeJob, type JobRow } from '../src/server/jobs';
+import { activeJob, startJob, type JobRow } from '../src/server/jobs';
 import { extractBlocks, type ExtractionResult } from '../src/server/pdf/extract';
 import { LAYOUT_VERSION, type Block } from '../src/server/pdf/layout';
 import { ensureCurrentLayout } from '../src/server/tasks/import';
+import { pendingPages } from '../src/server/tasks/translation';
+import { translation } from '../src/server/routes/translation';
 import type * as Config from '../src/server/config';
 
 vi.mock('../src/server/config', async (importOriginal) => {
@@ -40,6 +42,7 @@ beforeEach(() => {
   vi.mocked(extractBlocks).mockReset();
   vi.mocked(activeJob).mockReset();
   vi.mocked(activeJob).mockReturnValue(null);
+  vi.mocked(startJob).mockReset();
 });
 
 describe('legacy translated PDF span upgrade', () => {
@@ -116,6 +119,55 @@ describe('non-destructive column and caption repair', () => {
     await ensureCurrentLayout(paperId);
     expect(getBlocks(paperId)[0]).toMatchObject({ idx: 7, kind: 'caption', text: source.text });
     expect(db.prepare('SELECT * FROM translations').all()).toEqual(translationsBefore);
+  });
+
+  it.each([false, true])('promotes v5 title and summary in place on normal translation resume (saved Korean=%s)', async (translated) => {
+    const source = [
+      { ...block(1, 'Dose-dependent responses of medicinal plants to microplastics'), kind: 'aside' as const },
+      { ...block(7, 'Simple Summary'), kind: 'aside' as const },
+      { ...block(8, 'Plants were exposed to 0.1–2.0% microplastics for 60 days. Soil pH was measured.'), kind: 'aside' as const },
+      { ...block(9, 'Abstract'), kind: 'heading' as const },
+      block(10, 'Growth and 16S rRNA abundance were measured. All treatments were compared.'),
+    ];
+    legacyPaper(source, false);
+    db.prepare('UPDATE papers SET layout_version=? WHERE id=?').run(5, paperId);
+    if (translated) {
+      db.prepare('INSERT INTO translations(paper_id,block_idx,ko,sentences,made_by) VALUES(?,?,?,?,?)')
+        .run(paperId, 9, '초록', '[[0,8,"초록"]]', '{"engine":"claude","model":"saved-model"}');
+      db.prepare('INSERT INTO translations(paper_id,block_idx,ko,sentences,made_by) VALUES(?,?,?,?,?)')
+        .run(paperId, 10, '성장과 16S rRNA 양을 측정했다. 모든 처리를 비교했다.',
+          '[[0,43,"성장과 16S rRNA 양을 측정했다."],[44,73,"모든 처리를 비교했다."]]',
+          '{"engine":"claude","model":"saved-model"}');
+    }
+    db.prepare('INSERT INTO highlights(id,paper_id,type,color,position,text,note,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)')
+      .run('summary-note', paperId, 'text', 'yellow', '{"pageNumber":1,"blockIdx":8}',
+        source[2].text, 'Keep my scientific-value note', timestamp, timestamp);
+    const blocksBefore = getBlocks(paperId);
+    const translationsBefore = db.prepare('SELECT * FROM translations').all();
+    const highlightsBefore = db.prepare('SELECT * FROM highlights').all();
+    const current = source.map((b, idx) => ({
+      ...b, idx, kind: idx === 0 || idx === 1 || idx === 3 ? 'heading' as const : 'body' as const,
+    }));
+    vi.mocked(extractBlocks).mockResolvedValue({ pageCount: 2, title: null, blocks: current });
+    vi.mocked(startJob).mockReturnValue('normal-translation');
+
+    const response = await translation.request(`/papers/${paperId}/translation`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ jobId: 'normal-translation' });
+    expect(startJob).toHaveBeenCalledWith(paperId, 'translation', expect.any(Function));
+    expect(getBlocks(paperId)).toEqual(blocksBefore.map((b, idx) => ({
+      ...b, kind: current[idx].kind, spans: JSON.stringify(current[idx].spans),
+    })));
+    expect(getPaper(paperId)?.layout_version).toBe(LAYOUT_VERSION);
+    expect(db.prepare('SELECT * FROM translations').all()).toEqual(translationsBefore);
+    expect(db.prepare('SELECT * FROM highlights').all()).toEqual(highlightsBefore);
+    expect(db.prepare('SELECT t.ko FROM blocks b LEFT JOIN translations t ON t.paper_id=b.paper_id AND t.block_idx=b.idx WHERE b.paper_id=? AND b.idx IN (1,7,8) ORDER BY b.idx')
+      .all(paperId)).toEqual([{ ko: null }, { ko: null }, { ko: null }]);
+    expect(pendingPages(paperId).flatMap((page) => page.batches.flatMap((batch) => batch.map((b) => b.idx))))
+      .toEqual(translated ? [1, 7, 8] : [1, 7, 8, 9, 10]);
   });
 
   it('preserves crossed-column text and translation but clears unsafe old source offsets', async () => {

@@ -82,29 +82,29 @@ export function Dialog({
 }
 
 const BTN_CORE =
-  'inline-flex items-center justify-center gap-1.5 transition-[transform,background-color,color,border-color,opacity] duration-150 ease-out disabled:opacity-50 disabled:pointer-events-none';
-const BTN_BASE = `${BTN_CORE} active:scale-[0.97]`;
+  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-[background-color,color,border-color,opacity] duration-150 ease-out disabled:opacity-50 disabled:pointer-events-none';
+const BTN_BASE = `${BTN_CORE} active:opacity-75`;
 
-export const btnCls = `${BTN_BASE} h-8 rounded-lg border border-line-strong bg-surface px-3 text-[13px] text-fg hover:bg-hover`;
-export const primaryBtnCls = `${BTN_BASE} h-8 rounded-lg bg-accent px-3 text-[13px] font-medium text-accent-fg hover:opacity-90`;
+export const btnCls = `${BTN_BASE} h-7 rounded-lg border border-line bg-surface px-2.5 text-[12.5px] font-medium text-fg hover:bg-raised shadow-[inset_0_1px_0_#ffffff40]`;
+export const primaryBtnCls = `${BTN_BASE} h-7 rounded-lg border border-transparent bg-accent px-2.5 text-[12.5px] font-medium text-white shadow-[inset_0_1px_0_#ffffff40,0_4px_12px_-4px_#2862e099] hover:opacity-90`;
 export const ghostBtnCls = `${BTN_BASE} h-8 rounded-lg px-2.5 text-[13px] text-fg-muted hover:bg-hover hover:text-fg`;
 export const dangerBtnCls = `${BTN_BASE} h-8 rounded-lg bg-danger px-3 text-[13px] font-medium text-white hover:opacity-90`;
 export const smallDangerBtnCls = `${BTN_BASE} h-7 rounded-md bg-danger px-3 text-[12px] font-medium text-white hover:opacity-90`;
 export const smallBtnCls = `${BTN_BASE} h-7 rounded-md border border-line-strong bg-surface px-2 text-[12px] text-fg hover:bg-hover`;
-export const smallPrimaryBtnCls = `${BTN_BASE} h-7 rounded-md bg-accent px-2.5 text-[12px] font-medium text-accent-fg hover:opacity-90`;
-export const smallGhostBtnCls = `${BTN_BASE} h-7 rounded-md px-2 text-[12px] text-fg-muted hover:bg-hover hover:text-fg`;
-export const iconBtnCls = `${BTN_CORE} h-8 w-8 rounded-lg text-fg-muted hover:bg-hover hover:text-fg active:scale-[0.95]`;
-export const smallIconBtnCls = `${BTN_CORE} h-7 w-7 shrink-0 rounded-md text-fg-muted hover:bg-hover hover:text-fg active:scale-[0.95]`;
+export const smallPrimaryBtnCls = `${BTN_BASE} h-6 rounded-lg bg-accent px-2 text-[11.5px] font-medium text-white hover:opacity-90`;
+export const smallGhostBtnCls = `${BTN_BASE} h-7 rounded-lg px-2 text-[12px] text-fg-muted hover:bg-hover hover:text-fg`;
+export const iconBtnCls = `${BTN_CORE} h-7 w-7 rounded-lg text-fg-muted hover:bg-hover hover:text-fg active:opacity-70`;
+export const smallIconBtnCls = `${BTN_CORE} h-[26px] w-[26px] shrink-0 rounded-[7px] text-fg-muted hover:bg-hover hover:text-fg active:opacity-70`;
 
-const CHIP = 'inline-flex items-center gap-1 h-7 whitespace-nowrap rounded-full border px-2.5 text-[12px] transition-colors duration-150';
+const CHIP = 'inline-flex items-center gap-1 h-7 whitespace-nowrap rounded-md border px-2.5 text-[12px] transition-colors duration-150';
 
-/** Pill toggle (폭 맞춤, 영역 선택, 번역 …); pair with `aria-pressed`. */
+/** Compact outlined toggle; pair with `aria-pressed`. */
 export function chipCls(on: boolean): string {
-  return on ? `${CHIP} border-accent/50 bg-accent-soft text-accent` : `${CHIP} border-line text-fg-muted hover:bg-hover hover:text-fg`;
+  return on ? `${CHIP} border-line-strong bg-surface text-fg` : `${CHIP} border-transparent text-fg-muted hover:bg-hover hover:text-fg`;
 }
 
 export const inputCls =
-  'w-full rounded-lg border border-line-strong bg-sunken px-3 py-2 text-[13px] text-fg placeholder:text-fg-dim outline-none transition-[border-color,box-shadow] duration-150 focus:border-focus focus:ring-2 focus:ring-focus/25';
+  'w-full rounded-[9px] border border-line-strong bg-sunken px-2.5 py-[7px] text-[13px] text-fg placeholder:text-fg-dim outline-none transition-[border-color,box-shadow] duration-150 focus:border-focus focus:ring-[3px] focus:ring-focus/12';
 
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return (

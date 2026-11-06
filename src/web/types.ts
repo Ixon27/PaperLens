@@ -7,7 +7,7 @@ export interface Author {
   given?: string;
 }
 
-export type JobKind = 'import' | 'translation' | 'analysis' | 'addons' | 'summary' | 'mindmap' | 'references' | 'keywords' | 'figure' | 'lineage' | 'quiz' | 'presentation' | 'comparison' | 'layoutTranslation';
+export type JobKind = 'import' | 'translation' | 'analysis' | 'addons' | 'summary' | 'mindmap' | 'references' | 'keywords' | 'figure' | 'lineage' | 'quiz' | 'presentation' | 'comparison';
 export type JobStatus = 'queued' | 'running' | 'done' | 'error';
 
 export interface JobDto {
@@ -24,6 +24,13 @@ export interface PaperStatus {
   mindmap: boolean;
   translation: { done: number; total: number };
   blockCount: number;
+}
+
+export interface FolderDto {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface PaperDto {
@@ -47,6 +54,7 @@ export interface PaperDto {
   lastOpenedAt: string | null;
   starred: boolean;
   readStatus: 'unread' | 'reading' | 'read';
+  folderId: string | null;
   searchMatch?: {
     source: 'title' | 'authors' | 'body' | 'highlight' | 'note';
     snippet: string;

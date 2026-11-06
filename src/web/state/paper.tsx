@@ -56,6 +56,12 @@ export function PaperProvider({ paper, reloadPaper, children }: { paper: PaperDt
     if (blocks && blocks.length !== blockCount) void reloadBlocks();
   }, [blockCount]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A conservative layout upgrade can promote readable content without changing IDs.
+  // Refresh status so newly discovered missing translations are not shown as complete.
+  useEffect(() => {
+    if (blocks && blocks.filter((block) => block.translatable).length !== paper.status.translation.total) void reloadPaper();
+  }, [blocks, paper.status.translation.total, reloadPaper]);
+
   const createHighlight = useCallback(
     async (h: NewHighlight) => {
       const created = await api<HighlightDto>(`/api/papers/${id}/highlights`, { method: 'POST', json: h });

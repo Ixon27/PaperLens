@@ -1,0 +1,149 @@
+/* Material and geometry measured from ghostex.dev's light demo; no external runtime requests. */
+@font-face {
+  font-family: Geist;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./fonts/Geist-variable.ttf') format('truetype');
+}
+:root {
+  --pr-canvas: transparent;
+  --pr-surface: #fff9;
+  --pr-raised: #ffffffe6;
+  --pr-sunken: #1016260d;
+  --pr-sidebar: #f0f4fb57;
+  --pr-hover: #1016260b;
+  --pr-line: #10162613;
+  --pr-line-strong: #1016261c;
+  --pr-fg: #101626;
+  --pr-fg-muted: #10162699;
+  --pr-fg-dim: #10162680;
+  --pr-accent: #2862e0;
+  --pr-accent-fg: #fff;
+  --pr-accent-soft: #2862e024;
+  --pr-focus: #2862e0;
+  --pr-inverse: #101626;
+  --pr-inverse-fg: #fff;
+  --pr-shadow-card: 0 1px 2px #1828600d, 0 6px 18px -10px #18286033;
+  --pr-shadow-pop: inset 0 0 0 1px #ffffffe6, 0 0 0 1px #1016260f, 0 22px 50px -14px #18286052;
+  --glass-tint: 255, 255, 255;
+  --glass-alpha: 0.5;
+  --glass-edge: inset 0 0 0 1px #fff9, inset 0 1.5px 0 #fffffff2, inset 0 -1px 0 #768cd22e;
+  --glass-shadow: 0 1px 2px #1828600f, 0 26px 50px -22px #1828604d, 0 70px 140px -40px #1828604d;
+}
+:root[data-theme='dark'] {
+  --pr-canvas: transparent;
+  --pr-surface: #ffffff0d;
+  --pr-raised: #22232ce8;
+  --pr-sunken: #ffffff0a;
+  --pr-sidebar: #08090d57;
+  --pr-hover: #ffffff0b;
+  --pr-line: #ffffff14;
+  --pr-line-strong: #ffffff21;
+  --pr-fg: #eef0f5;
+  --pr-fg-muted: #eef0f599;
+  --pr-fg-dim: #eef0f580;
+  --pr-accent: #78b0ff;
+  --pr-accent-fg: #101626;
+  --pr-accent-soft: #78b0ff24;
+  --pr-focus: #78b0ff;
+  --pr-inverse: #eef0f5;
+  --pr-inverse-fg: #121319;
+  --glass-tint: 18, 19, 25;
+  --glass-alpha: 0.62;
+  --glass-edge: inset 0 1px 0 #ffffff12;
+  --glass-shadow: 0 40px 120px -20px #000000bf, 0 0 0 1px #0006;
+  --pr-shadow-card: 0 1px 2px #00000040;
+  --pr-shadow-pop: 0 24px 60px -12px #0009, 0 0 0 1px #ffffff0f;
+}
+body {
+  font-family: Geist, 'SF Pro Text', 'Apple SD Gothic Neo', 'Segoe UI', sans-serif;
+  line-height: 1.45;
+  background:
+    radial-gradient(ellipse at 12% 65%, #bedaff80, transparent 65%), radial-gradient(ellipse at 88% 8%, #d8c5ff70, transparent 60%),
+    radial-gradient(ellipse at 75% 95%, #bcebdc70, transparent 55%), #edf2fa;
+}
+:root[data-theme='dark'] body {
+  background:
+    radial-gradient(ellipse at 10% 60%, #31477780, transparent 65%), radial-gradient(ellipse at 95% 5%, #503b6b60, transparent 60%), #151923;
+}
+.ghost-shell {
+  isolation: isolate;
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  background:
+    radial-gradient(120% 70% at 0 0, #ffffff80, #fff0 55%), radial-gradient(80% 60% at 100% 100%, #d6e2ff66, #d6e2ff00 65%),
+    rgba(var(--glass-tint), var(--glass-alpha));
+  backdrop-filter: blur(30px) saturate(185%) brightness(1.03);
+  box-shadow: var(--glass-edge), var(--glass-shadow);
+}
+.ghost-titlebar {
+  height: 46px !important;
+  min-height: 46px;
+  background: transparent !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  border-bottom: 1px solid var(--pr-line);
+}
+.ghost-titlebar-side {
+  width: 258px;
+  flex: none;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px 0 14px;
+  gap: 1px;
+  background: var(--pr-sidebar);
+  border-right: 1px solid var(--pr-line);
+}
+.ghost-titlebar-main {
+  height: 46px;
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+}
+html[data-desktop='darwin'] .ghost-titlebar {
+  padding-left: 0 !important;
+}
+html[data-desktop='darwin'] .ghost-titlebar-side {
+  padding-left: 84px;
+}
+.workbench-panel {
+  background: #ffffffa8;
+  box-shadow:
+    var(--pr-shadow-card),
+    inset 1px 1px 0 #ffffffe6;
+  border: 1px solid var(--pr-line);
+  border-radius: 12px;
+}
+:root[data-theme='dark'] .workbench-panel {
+  background: #ffffff0b;
+  box-shadow: var(--pr-shadow-card);
+}
+.pr-dialog,
+.pr-pop {
+  backdrop-filter: blur(26px) saturate(190%);
+  box-shadow: var(--pr-shadow-pop);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .ghost-shell {
+    background: rgb(var(--glass-tint));
+    backdrop-filter: none;
+  }
+  .pr-dialog,
+  .pr-pop {
+    background: var(--pr-raised);
+    backdrop-filter: none;
+  }
+}
+:root[data-theme='dark'] .ghost-shell {
+  background: radial-gradient(90% 60% at 0 0, #ffffff0f, #0000 60%), rgba(var(--glass-tint), var(--glass-alpha));
+  backdrop-filter: blur(34px) saturate(170%);
+}
+:root .pr-dialog, :root .pr-pop {background:#ffffff94;}
+:root[data-theme='dark'] .pr-dialog, :root[data-theme='dark'] .pr-pop {background:#22232ca3;}
+@media(prefers-reduced-transparency:reduce){:root .ghost-shell,:root .pr-dialog,:root .pr-pop {background:var(--pr-raised);backdrop-filter:none;}}

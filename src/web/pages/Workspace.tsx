@@ -45,7 +45,6 @@ import type { PaperDto } from '../types';
 import { authorShort } from './Library';
 
 const FiguresPanel = lazy(() => import('../panels/FiguresPanel').then((m) => ({ default: m.FiguresPanel })));
-const LayoutTranslationView = lazy(() => import('../panels/LayoutTranslationView').then((m) => ({ default: m.LayoutTranslationView })));
 
 const TABS: { id: TabId; label: string; Icon: LucideIcon; needsText: boolean }[] = [
   { id: 'overview', label: '요약·토론', Icon: MessagesSquare, needsText: true },
@@ -146,7 +145,6 @@ export function Workspace({ id }: { id: string }) {
 function WorkspaceInner() {
   const { paper, reloadPaper, noText } = usePaper();
   const { tab, pdfMode, setPdfMode, showTranslation, setShowTranslation, sidebarOpen } = useViewer();
-  const [layoutTranslation, setLayoutTranslation] = useState(false);
   const [metaOpen, setMetaOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [splits, setSplits] = useState(() => ({
@@ -211,8 +209,8 @@ function WorkspaceInner() {
   };
 
   const meta = [authorShort(paper), paper.year, paper.journal].filter(Boolean).join(' · ');
-  const showSidebar = sidebarOpen && !layoutTranslation;
-  const fullPanel = pdfMode === 'full-panel' && !layoutTranslation;
+  const showSidebar = sidebarOpen;
+  const fullPanel = pdfMode === 'full-panel';
 
   // The hidden reading column keeps its layout (no PDF.js re-render) but must not take focus.
   useEffect(() => {
@@ -247,11 +245,10 @@ function WorkspaceInner() {
         >
           {paper.field ? FIELD_LABELS[paper.field] : '분야 미정'}
         </button>
-        <button className={`${chipCls(showTranslation && !layoutTranslation)} shrink-0`} aria-pressed={showTranslation && !layoutTranslation} onClick={() => { setShowTranslation(layoutTranslation || !showTranslation); setLayoutTranslation(false); }}>
+        <button className={`${chipCls(showTranslation)} shrink-0`} aria-pressed={showTranslation} onClick={() => setShowTranslation(!showTranslation)}>
           <Languages size={14} />
           나란히 번역
         </button>
-        <button className={`${chipCls(layoutTranslation)} shrink-0`} aria-pressed={layoutTranslation} onClick={() => setLayoutTranslation((value) => !value)}>원본 배치 번역</button>
         <button className={`${btnCls} shrink-0`} onClick={() => setExportOpen(true)}>
           내보내기
         </button>
@@ -276,10 +273,10 @@ function WorkspaceInner() {
             }}
           >
             <div ref={readRef} className="flex h-full min-w-0 flex-1">
-              <div className="h-full min-w-0 shrink-0" style={{ width: showTranslation && !layoutTranslation ? `calc(${trSplit * 100}% - 4px)` : '100%' }}>
-                {paper.hasPdf ? <><div hidden={layoutTranslation} className="h-full"><PdfPane /></div>{layoutTranslation && <Suspense fallback={<Spinner text="원본 배치 번역 불러오는 중…" />}><LayoutTranslationView /></Suspense>}</> : <PdfDropZone importJob={importJob} />}
+              <div className="h-full min-w-0 shrink-0" style={{ width: showTranslation ? `calc(${trSplit * 100}% - 4px)` : '100%' }}>
+                {paper.hasPdf ? <PdfPane /> : <PdfDropZone importJob={importJob} />}
               </div>
-              {showTranslation && !layoutTranslation && (
+              {showTranslation && (
                 <>
                   <Separator active={dragging === 'reading'} onPointerDown={startReadingDrag} />
                   <div className="h-full min-w-0 flex-1 bg-surface">
@@ -313,7 +310,7 @@ function WorkspaceInner() {
             </div>
           </div>
         </div>
-        {!layoutTranslation && <SidebarRail />}
+        <SidebarRail />
       </div>
       {metaOpen && <MetadataDialog paper={paper} onClose={() => setMetaOpen(false)} onSaved={() => void reloadPaper()} />}
       {exportOpen && <ExportDialog onClose={() => setExportOpen(false)} />}

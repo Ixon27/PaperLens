@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Hono } from 'hono';
 import { isFieldId, type FieldId } from '../../shared/fields';
 import { PATHS } from '../config';
-import { db, getArtifact, getPaper, isTranslatable, madeByOf, now, parseAuthors, refreshFts, type BlockRow, type PaperRow } from '../db';
+import { db, getArtifact, getPaper, isTranslatable, madeByOf, now, parseAuthors, refreshFts, tx, type BlockRow, type PaperRow } from '../db';
 import { latestJobs, snapshotOf, type JobRow } from '../jobs';
 import * as openalex from '../services/openalex';
 import { HttpError } from '../http-error';
@@ -14,6 +14,7 @@ import { deletePaper } from '../tasks/delete-paper';
 import { suggestField, type FieldSuggestion } from '../tasks/suggest-field';
 import type { MadeBy } from '../../shared/models';
 import { searchPapers } from '../paper-search';
+import { folderInput } from '../folders';
 
 export const papers = new Hono();
 
@@ -66,6 +67,7 @@ function paperDto(p: PaperRow) {
     lastOpenedAt: p.last_opened_at,
     starred: p.starred === 1,
     readStatus: p.read_status,
+    folderId: p.folder_id,
     status: paperStatus(p.id),
     // Running job first; otherwise the latest import job so its final message (e.g. "no OA PDF") stays visible.
     job: jobDto(running ?? (importJob && !p.pdf_file ? importJob : null)),
@@ -80,9 +82,11 @@ papers.get('/papers', (c) => {
 });
 
 papers.post('/papers/import', async (c) => {
-  const { input, field } = await c.req.json<{ input?: string; field?: unknown }>();
-  if (!input?.trim()) throw new HttpError(400, 'DOI, arXiv 또는 OpenAlex 링크가 아닙니다');
-  return c.json(await importFromInput(input, fieldInput(field)));
+  const body = await c.req.json<Record<string, unknown>>().catch(() => { throw new HttpError(400, '올바른 JSON 가져오기 요청을 보내세요'); });
+  if (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.input !== 'string' || !body.input.trim()) {
+    throw new HttpError(400, 'DOI, arXiv 또는 OpenAlex 링크가 아닙니다');
+  }
+  return c.json(await importFromInput(body.input, fieldInput(body.field), folderInput(body.folderId)));
 });
 
 papers.post('/papers/:id/pdf/fetch', (c) => c.json(retryPaperPdf(c.req.param('id'))));
@@ -93,10 +97,11 @@ papers.post('/papers/upload', async (c) => {
   const files = (Array.isArray(raw) ? raw : [raw]).filter((f): f is File => f instanceof File);
   if (!files.length) throw new HttpError(400, 'PDF 파일이 없습니다');
   const field = fieldInput(body['field']);
+  const folderId = folderInput(body['folderId'] === '' ? null : body['folderId']);
   const results = [];
   for (const f of files) {
     try {
-      results.push(await importUpload(f.name, Buffer.from(await f.arrayBuffer()), field));
+      results.push(await importUpload(f.name, Buffer.from(await f.arrayBuffer()), field, folderId));
     } catch (e) {
       results.push({ name: f.name, error: e instanceof Error ? e.message : String(e) });
     }
@@ -109,6 +114,25 @@ function requirePaper(id: string): PaperRow {
   if (!p) throw new HttpError(404, '논문을 찾을 수 없습니다');
   return p;
 }
+
+papers.put('/papers/folder', async (c) => {
+  const body = await c.req.json<Record<string, unknown>>().catch(() => { throw new HttpError(400, '올바른 JSON 이동 요청을 보내세요'); });
+  if (!body || typeof body !== 'object' || Array.isArray(body) || !Array.isArray(body.paperIds) || !body.paperIds.length ||
+      body.paperIds.some((id) => typeof id !== 'string' || !id.trim()) || new Set(body.paperIds).size !== body.paperIds.length ||
+      !Object.hasOwn(body, 'folderId') || body.folderId === undefined) {
+    throw new HttpError(400, '이동할 논문 ID 목록과 폴더를 지정하세요');
+  }
+  const paperIds = body.paperIds as string[];
+  const updated = tx(() => {
+    const folderId = folderInput(body.folderId)!;
+    for (const id of paperIds) requirePaper(id);
+    const timestamp = now();
+    const update = db.prepare('UPDATE papers SET folder_id=?, updated_at=? WHERE id=?');
+    for (const id of paperIds) update.run(folderId, timestamp, id);
+    return paperIds.map((id) => paperDto(getPaper(id)!));
+  });
+  return c.json(updated);
+});
 
 papers.get('/papers/:id', (c) => {
   const p = requirePaper(c.req.param('id'));

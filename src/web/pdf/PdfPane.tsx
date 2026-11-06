@@ -100,7 +100,7 @@ export function toAppHighlight(h: HighlightDto): AppHighlight {
   return { id: h.id, type: h.type, position: h.position, color: h.color, note: h.note, text: h.text };
 }
 
-const clampScale = (s: number) => Math.min(3, Math.max(0.5, Math.round(s * 10) / 10));
+const clampScale = (s: number) => Math.min(3, Math.max(0.5, Math.round(s * 100) / 100));
 
 /** Keep sentence hover separate from the PDF viewer; never replace missing alignment with a whole-block highlight. */
 function SyncHoverBridge({ paneRef, enabled }: { paneRef: RefObject<HTMLDivElement | null>; enabled: boolean }) {
@@ -244,10 +244,29 @@ export function PdfPane() {
   const container = useMemo(() => <HighlightContainer onAreaChange={onAreaChange} />, [onAreaChange]);
 
   const zoom = (delta: number) => {
-    const v = utilsRef.current?.getViewer();
-    const cur = typeof scale === 'number' ? scale : (v?.currentScale ?? 1);
-    setScale(clampScale(cur + delta));
+    setScale((previous) => {
+      const current = typeof previous === 'number' ? previous : (utilsRef.current?.getViewer()?.currentScale ?? 1);
+      return clampScale(current + delta);
+    });
   };
+
+  // Cancel browser zoom only over the document, never over the app's toolbars or sidebar.
+  useEffect(() => {
+    const pane = paneRef.current;
+    if (!pane) return;
+    const onWheel = (event: WheelEvent) => {
+      if ((!event.ctrlKey && !event.metaKey) || event.deltaY === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const delta = event.deltaY * (event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? pane.clientHeight : 1);
+      setScale((previous) => {
+        const current = typeof previous === 'number' ? previous : (utilsRef.current?.getViewer()?.currentScale ?? 1);
+        return clampScale(current * Math.exp(-delta * 0.002));
+      });
+    };
+    pane.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => pane.removeEventListener('wheel', onWheel, true);
+  }, [utilsRef]);
 
   return (
     <div className="flex h-full flex-col">

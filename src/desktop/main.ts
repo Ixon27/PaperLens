@@ -43,7 +43,7 @@ let quitting = false;
 let mayQuit = false;
 let failureShown = false;
 
-const themeBackground = () => nativeTheme.shouldUseDarkColors ? '#11151c' : '#f3f6f9';
+const themeBackground = () => nativeTheme.shouldUseDarkColors ? '#151923' : '#edf2fa';
 const themeFile = join(userData, 'theme.json');
 type ThemeSource = 'system' | 'light' | 'dark';
 const isThemeSource = (value: unknown): value is ThemeSource => value === 'system' || value === 'light' || value === 'dark';

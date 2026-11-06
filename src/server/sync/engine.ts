@@ -8,7 +8,7 @@ import { deletePaper } from '../tasks/delete-paper';
 import { extractPaperPdf, paperIdByDoi } from '../tasks/import';
 import type { RemoteFile, SyncTransport } from './drive';
 import {
-  ENTITIES, applyPaper, applyRow, blockHashes, deleteRow, fileSha256, placePdf, readPaperRows, rowHash, sha1,
+  ENTITIES, FOLDER_SCOPE, applyPaper, applyRow, blockHashes, deleteRow, fileSha256, placePdf, readFolderRows, readPaperRows, rowHash, sha1,
   type BlobFiles, type BlobSources, type Entity, type PaperRows, type RowData,
 } from './rows';
 import { Clock, deviceId, setMeta } from './state';
@@ -25,6 +25,7 @@ export const FORMAT = 1;
 const paperFile = (device: string, paperId: string) => `pl1/dev/${device}/paper/${paperId}.json`;
 const blobFile = (sha: string) => `pl1/blob/${sha}`;
 const PAPER_FILE = /^pl1\/dev\/([0-9a-f]+)\/paper\/([^/]+)\.json$/;
+const FOLDER_FILE = /^pl1\/dev\/([0-9a-f]+)\/folders\.json$/;
 const DEVICE_OF = /^pl1\/dev\/([0-9a-f]+)\//;
 
 /** `[entity, key, version, base, deleted, data]` */
@@ -76,6 +77,7 @@ function recordConflict(paperId: string, entity: string, key: string, version: s
 
 function syncedPaperIds(): string[] {
   const ids = new Set((db.prepare('SELECT id FROM papers').all() as { id: string }[]).map((r) => r.id));
+  if (db.prepare('SELECT 1 FROM folders LIMIT 1').get()) ids.add(FOLDER_SCOPE);
   for (const r of db.prepare('SELECT DISTINCT paper_id FROM sync_rows').all() as { paper_id: string }[]) ids.add(r.paper_id);
   return [...ids];
 }
@@ -85,7 +87,7 @@ function scan(clock: Clock, sources: BlobSources): void {
   tx(() => {
     for (const id of syncedPaperIds()) {
       if (paperHasActiveJob(id)) continue;
-      const rows = readPaperRows(id, sources);
+      const rows = id === FOLDER_SCOPE ? readFolderRows() : readPaperRows(id, sources);
       const states = loadStates(id);
       const seen = new Set<string>();
       for (const [entity, byKey] of rows) {
@@ -128,6 +130,10 @@ function isBundleRow(r: unknown): r is BundleRow {
   if (!Array.isArray(r) || r.length !== 6) return false;
   const [entity, key, version, base, deleted, data] = r;
   const dataOk = deleted === 1 ? data === null : typeof data === 'object' && data !== null && !Array.isArray(data);
+  if (entity === 'folder' && deleted === 0) {
+    const name = dataOk ? (data as RowData).name : null;
+    if (typeof name !== 'string' || !name.trim() || Array.from(name.trim()).length > 80) return false;
+  }
   return isEntity(entity) && typeof key === 'string' && typeof version === 'string' && (base === null || typeof base === 'string') && (deleted === 0 || deleted === 1) && dataOk;
 }
 
@@ -142,6 +148,7 @@ function parseBundle(buf: Buffer): Bundle | null {
   if (typeof raw !== 'object' || raw === null || !('format' in raw) || !('device' in raw) || !('paper' in raw) || !('rows' in raw)) return null;
   const { format, device, paper, rows } = raw;
   if (format !== FORMAT || typeof device !== 'string' || typeof paper !== 'string' || !Array.isArray(rows) || !rows.every(isBundleRow)) return null;
+  if (rows.some((r) => paper === FOLDER_SCOPE ? r[0] !== 'folder' : r[0] === 'folder')) return null;
   return { format: FORMAT, device, paper, rows };
 }
 
@@ -152,6 +159,27 @@ async function applyBundle(
   bundle: Bundle, transport: SyncTransport, remoteBlobs: Map<string, RemoteFile>, sources: BlobSources, clock: Clock,
 ): Promise<{ status: 'done' | 'pending'; applied: number }> {
   for (const r of bundle.rows) clock.observe(r[2]);
+  if (bundle.paper === FOLDER_SCOPE) {
+    const states = loadStates(FOLDER_SCOPE);
+    const before = readFolderRows();
+    let applied = 0;
+    tx(() => {
+      for (const [entity, key, version, base, deleted, data] of bundle.rows) {
+        const s = states.get(rowKey(entity, key));
+        if (s && version <= s.version) continue;
+        const mine = before.get(entity)?.get(key);
+        if (s && !s.deleted && mine && base !== s.version && (deleted || rowHash(mine) !== rowHash(data ?? {}))) {
+          recordConflict(FOLDER_SCOPE, entity, key, s.version, mine, version);
+        }
+        if (deleted) deleteRow(FOLDER_SCOPE, 'folder', key);
+        else if (data) applyRow(FOLDER_SCOPE, 'folder', key, data, new Map(), new Map());
+        const after = readFolderRows().get('folder')!.get(key);
+        setState(FOLDER_SCOPE, entity, key, { version, base, hash: after ? rowHash(after) : '', deleted: deleted === 1 });
+        applied++;
+      }
+    });
+    return { status: 'done', applied };
+  }
   const paperRow = bundle.rows.find((r) => r[0] === 'paper');
   const localId = localIdFor(bundle.paper, paperRow);
   if (paperHasActiveJob(localId)) return { status: 'pending', applied: 0 };
@@ -165,6 +193,16 @@ async function applyBundle(
   const winners = bundle.rows.filter(wins);
   if (!winners.length) return { status: 'done', applied: 0 };
   const paperWin = winners.find((r) => r[0] === 'paper');
+  // Wait before materializing a paper: otherwise scan would version its temporary
+  // empty assignment as a local edit and permanently defeat the deferred assignment.
+  if (!paperWin?.[4]) for (const r of winners) {
+    if (r[0] !== 'folder_assignment' || r[4] || typeof r[5]?.folder_id !== 'string') continue;
+    const folderId = r[5].folder_id;
+    if (!db.prepare('SELECT 1 FROM folders WHERE id=?').get(folderId)
+      && db.prepare("SELECT deleted FROM sync_rows WHERE paper_id=? AND entity='folder' AND key=?").get(FOLDER_SCOPE, folderId)?.deleted !== 1) {
+      return { status: 'pending', applied: 0 };
+    }
+  }
   const before: PaperRows | null = local ? readPaperRows(localId, new Map()) : null;
 
   if (paperWin?.[4]) {
@@ -277,11 +315,13 @@ async function merge(transport: SyncTransport, device: string, files: RemoteFile
   const remoteBlobs = new Map(files.filter((f) => f.name.startsWith('pl1/blob/')).map((f) => [f.name, f]));
   let applied = 0;
   let pending = 0;
-  for (const f of files) {
-    const m = PAPER_FILE.exec(f.name);
+  // Folder definitions and tombstones must be known before applying any paper assignments.
+  for (const f of [...files].sort((a, b) => Number(FOLDER_FILE.test(b.name)) - Number(FOLDER_FILE.test(a.name)))) {
+    const m = FOLDER_FILE.exec(f.name) ?? PAPER_FILE.exec(f.name);
     if (!m || m[1] === device || processed.get(f.name) === f.checksum) continue;
     signal?.throwIfAborted();
-    const bundle = parseBundle(await transport.read(f.id));
+    const parsed = parseBundle(await transport.read(f.id));
+    const bundle = parsed && (FOLDER_FILE.test(f.name) ? parsed.paper === FOLDER_SCOPE : parsed.paper === m[2]) ? parsed : null;
     const result = bundle ? await applyBundle(bundle, transport, remoteBlobs, sources, clock) : { status: 'done' as const, applied: 0 };
     applied += result.applied;
     if (result.status === 'pending') pending++;
@@ -301,7 +341,7 @@ async function publish(transport: SyncTransport, device: string, files: RemoteFi
     if (paperHasActiveJob(id)) continue;
     const states = loadStates(id);
     if (!states.size) continue;
-    const current = readPaperRows(id, sources);
+    const current = id === FOLDER_SCOPE ? readFolderRows() : readPaperRows(id, sources);
     const rows: BundleRow[] = [];
     for (const [k, s] of [...states].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
       const [entity, key] = k.split('\t') as [Entity, string];
@@ -312,7 +352,7 @@ async function publish(transport: SyncTransport, device: string, files: RemoteFi
     }
     const body = JSON.stringify({ format: FORMAT, device, paper: id, rows } satisfies Bundle);
     const hash = sha1(body);
-    const name = paperFile(device, id);
+    const name = id === FOLDER_SCOPE ? `pl1/dev/${device}/folders.json` : paperFile(device, id);
     if (published.get(id) === hash && byName.has(name)) continue;
     outgoing.push({ paperId: id, name, body, hash });
   }

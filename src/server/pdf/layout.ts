@@ -35,7 +35,7 @@ export interface Block {
 }
 
 /** Bump when block boundaries, kinds or spans change; translated layouts upgrade without deleting saved text. */
-export const LAYOUT_VERSION = 5;
+export const LAYOUT_VERSION = 6;
 
 export interface TextViewport {
   width: number;
@@ -94,14 +94,14 @@ interface Piece {
 
 const REF_HEADING = /^\s*(?:(?:\d+|[IVX]+|[A-Z])\.?\s*)?(?:references?(?: and notes)?|reference list|notes and references|works cited|literature cited|bibliography|참고\s?문헌)\s*$/i;
 const REF_END = /^\s*(supplementary|appendix|acknowledg|figure legends)/i;
-const SECTION_HEADING = /^(?:(?:\d+(?:\.\d+)*|[IVX]+|[A-Z])\.?\s+)?(?:abstract|introduction|background|related work|preliminaries|problem (?:formulation|statement|setup)|theory|theoretical (?:background|framework)|(?:the )?model|approach|proposed method|materials and methods|methods?(?: and materials)?|methodology|experimental(?: procedures| section| setup| results)?|experiments?|results(?: and discussion)?|discussion|evaluation|simulations?|numerical (?:results|experiments|methods)|analysis|limitations|conclusions?(?: and future work)?|future work|summary|notation|nomenclature|proofs?|appendix(?: [A-Z])?|code availability|acknowledg(?:e)?ments?|funding|conflicts? of interest|author contributions|data availability(?: statement)?)\s*$/i;
+const SECTION_HEADING = /^(?:(?:\d+(?:\.\d+)*|[IVX]+|[A-Z])\.?\s+)?(?:abstract|introduction|background|related work|preliminaries|problem (?:formulation|statement|setup)|theory|theoretical (?:background|framework)|(?:the )?model|approach|proposed method|materials and methods|methods?(?: and materials)?|methodology|experimental(?: procedures| section| setup| results)?|experiments?|results(?: and discussion)?|discussion|evaluation|simulations?|numerical (?:results|experiments|methods)|analysis|limitations|conclusions?(?: and future work)?|future work|(?:(?:simple|lay|plain[ -]language|author) )?summary|notation|nomenclature|proofs?|appendix(?: [A-Z])?|code availability|acknowledg(?:e)?ments?|funding|conflicts? of interest|author contributions|data availability(?: statement)?)\s*$/i;
 const NUMBERED_HEADING = /^(?:\d+(?:\.\d+)*\.?|[IVX]+\.|[A-Z]\.)\s+\p{Lu}/u;
 const LIST_START = /^(?:\[\d{1,3}\]|\d{1,3}[.)]|[•●▪])\s/;
 // "Fig. 2." / "Table 1:" / Springer's "Fig. 4 Title" (number followed directly by a capitalized title).
 const CAPTION = /^(?:fig(?:ure)?s?|table|scheme|chart|algorithm|listing|그림|표|supplementary (?:figure|table))\.?\s*(?:(?:[A-Z]\.?)?\d+(?:\.\d+)*|[IVX]+)[A-Za-z]?(?:\s*[.:|—–-]|\s+(?=[\p{Lu}가-힣]))/iu;
 const KEYWORDS = /^(?:key\s?words?(?: and phrases)?|additional key words and phrases|index terms|abbreviations|(?:\d{4} )?mathematics subject classification|msc(?: ?\d{4})?|pacs(?: numbers?)?|ccs concepts|subject headings|jel(?: classification)?(?: codes?)?)\s*[:：.—–-]/i;
-const ABSTRACT_HEADING = /^(?:\d+\.?\s*)?(?:abstract|summary|초록|요약)\.?$/i;
-const ABSTRACT_INLINE = /^abstract(?:\s*[:.—–-]\s*|\s+)\S/i;
+const ABSTRACT_HEADING = /^(?:\d+\.?\s*)?(?:abstract|(?:(?:simple|lay|plain[ -]language|author) )?summary|초록|요약)\.?$/i;
+const ABSTRACT_INLINE = /^(?:abstract|(?:simple|lay|plain[ -]language|author) summary)(?:\s*[:.—–-]\s*|\s+)\S/i;
 /** Administrative back matter: not part of the paper's argument, so not reading text. */
 const BACK_MATTER = /^(?:\d+\.?\s*)?(?:supplementary materials?|author contributions?|funding|institutional review board statement|informed consent statement|ethics statement|data availability(?: statement)?|code availability|data and code availability|availability of data and materials|software availability|reproducibility statement|broader impacts?(?: statement)?|credit authorship contribution statement|declarations?(?: of (?:competing )?interests?)?|disclosures?|author information|additional information|publisher'?s note|conflicts? of interest|competing interests?|declaration of competing interest|acknowledg(?:e)?ments?|abbreviations)\b/i;
 const PAGE_NUMBER = /^(?:page\s*)?\d{1,4}(?:\s*(?:of|\/)\s*\d{1,4})?$/i;
@@ -663,8 +663,8 @@ export function layoutDocument(pages: PageText[]): Block[] {
     } else if (piece.kind === 'body') headed = false;
   }
 
-  // 2. Front matter before the abstract is not reading text; an "Abstract:" run-in paragraph is,
-  // whatever its type size (a headed small abstract was already taken in above).
+  // 2. A plain-language summary is reading text even when it precedes the scientific abstract.
+  // Stop front matter at the first such boundary, not at a later "Abstract" heading.
   const abstractAt = pieces.findIndex((piece) => piece.page <= 2 && !piece.furniture &&
     ((piece.kind === 'heading' && ABSTRACT_HEADING.test(piece.text)) || ABSTRACT_INLINE.test(piece.text)));
   if (abstractAt >= 0) {
@@ -686,6 +686,22 @@ export function layoutDocument(pages: PageText[]): Block[] {
       if (firstAbstract < 0) firstAbstract = i;
     }
     for (let i = 0; i < firstAbstract; i++) pieces[i].kind = 'aside';
+  }
+
+  // A prominent first-page article title is also reading text. Restrict this to substantial,
+  // wide, large-type text above a recognized abstract/summary; author lines, journal furniture
+  // and small metadata must not become headings merely because they precede the abstract.
+  // Use source geometry only: PDF metadata titles are often absent or unrelated.
+  if (abstractAt >= 0) {
+    const title = pieces.slice(0, abstractAt).findLast((piece) =>
+      piece.page === 1 && !piece.furniture && piece.text.length <= 300 &&
+      piece.text.trim().split(/\s+/).length >= 4 && !/https?:|doi\b|@/i.test(piece.text) &&
+      !SECTION_HEADING.test(piece.text) && !CAPTION.test(piece.text) &&
+      piece.lines.every(({ line }) => !line.rotated && line.cells <= 2 && line.size >= bodySize * 1.35) &&
+      piece.lines[0].line.box[1] >= piece.pageH * MARGIN_BAND &&
+      piece.lines.at(-1)!.line.box[3] <= piece.pageH * 0.45 &&
+      piece.lines.some(({ line }) => line.box[2] - line.box[0] >= piece.pageW * 0.35));
+    if (title) title.kind = 'heading';
   }
 
   // Back matter (funding, contributions, statements…), whether a headed section or a run-in label.

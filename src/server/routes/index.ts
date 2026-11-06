@@ -17,13 +17,14 @@ import { quizRoutes } from './quiz';
 import { libraryExportRoutes } from './library-export';
 import { presentationRoutes } from './presentation';
 import { comparisonRoutes } from './comparison';
-import { layoutTranslationRoutes } from './layout-translation';
+import { folders } from './folders';
 
 export const api = new Hono();
 
 api.route('/', settings);
 api.route('/', jobs);
 api.route('/', papers);
+api.route('/', folders);
 api.route('/', highlights);
 api.route('/', threads);
 api.route('/', translation);
@@ -39,4 +40,3 @@ api.route('/', quizRoutes);
 api.route('/', libraryExportRoutes);
 api.route('/', presentationRoutes);
 api.route('/', comparisonRoutes);
-api.route('/', layoutTranslationRoutes);

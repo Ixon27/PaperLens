@@ -67,7 +67,7 @@ let transport: MemoryTransport;
 afterAll(() => rmSync(PATHS.files, { recursive: true, force: true }));
 
 beforeEach(() => {
-  db.exec('DELETE FROM papers; DELETE FROM sync_rows; DELETE FROM sync_files; DELETE FROM sync_published; DELETE FROM sync_alias; DELETE FROM sync_conflicts; DELETE FROM sync_meta');
+  db.exec('DELETE FROM papers; DELETE FROM folders; DELETE FROM sync_rows; DELETE FROM sync_files; DELETE FROM sync_published; DELETE FROM sync_alias; DELETE FROM sync_conflicts; DELETE FROM sync_meta');
   transport = new MemoryTransport();
   vi.mocked(extractBlocks).mockReset().mockResolvedValue(extraction());
 });
@@ -80,7 +80,7 @@ describe('publishing', () => {
 
     const bundle = JSON.parse(transport.get(`pl1/dev/${deviceId()}/paper/p1.json`)!.toString()) as Bundle;
     const rows = new Map(bundle.rows.map((r) => [`${r[0]}:${r[1]}`, r]));
-    expect([...rows.keys()].sort()).toEqual(['artifact:summary', 'highlight:h1', 'paper:_', 'translation:0']);
+    expect([...rows.keys()].sort()).toEqual(['artifact:summary', 'folder_assignment:_', 'highlight:h1', 'paper:_', 'translation:0']);
     expect(rows.get('translation:0')![5]).toMatchObject({ ko: '로컬 번역', block: sha1('Local block text.') });
     const pdfSha = rows.get('paper:_')![5]!.pdf as string;
     expect(transport.get(`pl1/blob/${pdfSha}`)?.toString()).toBe('%PDF local p1');
@@ -184,5 +184,134 @@ describe('merging another device', () => {
     await syncOnce(transport);
     expect(getPaper('x9')).toBeUndefined();
     expect(db.prepare("SELECT content FROM artifacts WHERE paper_id='p1' AND kind='mindmap'").get()).toEqual({ content: '{"root":1}' });
+  });
+});
+
+describe('folder sync', () => {
+  const folderData = (name: string) => ({ name, created_at: '2025-01-01', updated_at: '2025-01-02' });
+  const insertFolder = (id: string, name: string) => {
+    db.prepare('INSERT INTO folders(id,name,name_key,created_at,updated_at) VALUES(?,?,?,?,?)')
+      .run(id, name, name.trim().toLowerCase(), '2025-01-01', '2025-01-02');
+  };
+  const remoteFolders = (rows: BundleRow[]) => transport.put(`pl1/dev/${OTHER}/folders.json`, bundleOf('', rows));
+
+  it('publishes empty folders independently, renames them and retains deletion tombstones', async () => {
+    insertFolder('f1', '연구');
+    expect((await syncOnce(transport)).published).toBe(1);
+    const path = `pl1/dev/${deviceId()}/folders.json`;
+    let bundle = JSON.parse(transport.get(path)!.toString()) as Bundle;
+    expect(bundle.paper).toBe('');
+    expect(bundle.rows).toHaveLength(1);
+    expect(bundle.rows[0]).toMatchObject(['folder', 'f1', expect.any(String), null, 0, folderData('연구')]);
+    expect((await syncOnce(transport)).published).toBe(0);
+    db.prepare("UPDATE folders SET name='새 연구',name_key='새 연구',updated_at='2025-02-01' WHERE id='f1'").run();
+    await syncOnce(transport);
+    bundle = JSON.parse(transport.get(path)!.toString()) as Bundle;
+    expect(bundle.rows[0][5]).toMatchObject({ name: '새 연구', updated_at: '2025-02-01' });
+    db.prepare("DELETE FROM folders WHERE id='f1'").run();
+    await syncOnce(transport);
+    bundle = JSON.parse(transport.get(path)!.toString()) as Bundle;
+    expect(bundle.rows[0][4]).toBe(1);
+    expect(bundle.rows[0][5]).toBeNull();
+  });
+
+  it('merges folder entities before assignments regardless of remote listing order', async () => {
+    transport.put(`pl1/dev/${OTHER}/paper/r1.json`, bundleOf('r1', [
+      ['paper', '_', v(1000), null, 0, paperData('Filed paper', null)],
+      ['folder_assignment', '_', v(1001), null, 0, { folder_id: 'f1' }],
+    ]));
+    remoteFolders([['folder', 'f1', v(999), null, 0, folderData('연구')]]);
+    expect((await syncOnce(transport)).pending).toBe(0);
+    expect(getPaper('r1')).toMatchObject({ folder_id: 'f1' });
+    expect(db.prepare("SELECT name FROM folders WHERE id='f1'").get()).toEqual({ name: '연구' });
+    expect(state('r1', 'folder_assignment', '_')?.version).toBe(v(1001));
+  });
+
+  it('defers an assignment with its paper until its folder arrives without creating a winning empty assignment', async () => {
+    transport.put(`pl1/dev/${OTHER}/paper/r1.json`, bundleOf('r1', [
+      ['paper', '_', v(1000), null, 0, paperData('Filed paper', null)],
+      ['folder_assignment', '_', v(1001), null, 0, { folder_id: 'f1' }],
+    ]));
+    expect((await syncOnce(transport)).pending).toBe(1);
+    expect(getPaper('r1')).toBeUndefined();
+    expect(state('r1', 'folder_assignment', '_')).toBeUndefined();
+    remoteFolders([['folder', 'f1', v(999), null, 0, folderData('나중 폴더')]]);
+    expect((await syncOnce(transport)).pending).toBe(0);
+    expect(getPaper('r1')).toMatchObject({ folder_id: 'f1' });
+    expect(state('r1', 'folder_assignment', '_')?.version).toBe(v(1001));
+  });
+
+  it('accepts old snapshots without removing an existing assignment and keeps assignment separate from metadata conflicts', async () => {
+    insertFolder('f1', '연구');
+    addLocalPaper('p1');
+    db.prepare("UPDATE papers SET folder_id='f1' WHERE id='p1'").run();
+    await syncOnce(transport);
+    const assignmentVersion = state('p1', 'folder_assignment', '_')!.version;
+    transport.put(`pl1/dev/${OTHER}/paper/p1.json`, bundleOf('p1', [
+      ['paper', '_', later(), null, 0, paperData('Old snapshot metadata', null)],
+    ]));
+    await syncOnce(transport);
+    expect(getPaper('p1')).toMatchObject({ title: 'Old snapshot metadata', folder_id: 'f1' });
+    expect(state('p1', 'folder_assignment', '_')!.version).toBe(assignmentVersion);
+    transport.put(`pl1/dev/${OTHER}/paper/p1.json`, bundleOf('p1', [
+      ['folder_assignment', '_', v(Date.now() + 120_000), assignmentVersion, 0, { folder_id: null }],
+    ]));
+    await syncOnce(transport);
+    expect(getPaper('p1')).toMatchObject({ title: 'Old snapshot metadata', folder_id: null });
+  });
+
+  it('applies rename and delete while retaining papers, and never resurrects a deleted folder from a stale assignment', async () => {
+    insertFolder('f1', '연구');
+    addLocalPaper('p1');
+    db.prepare("UPDATE papers SET folder_id='f1' WHERE id='p1'").run();
+    await syncOnce(transport);
+    remoteFolders([['folder', 'f1', later(), null, 0, folderData('이름 변경')]]);
+    await syncOnce(transport);
+    expect(db.prepare("SELECT name FROM folders WHERE id='f1'").get()).toEqual({ name: '이름 변경' });
+    expect(getPaper('p1')?.folder_id).toBe('f1');
+    remoteFolders([['folder', 'f1', v(Date.now() + 120_000), null, 1, null]]);
+    await syncOnce(transport);
+    expect(getPaper('p1')).toMatchObject({ folder_id: null });
+    expect(state('', 'folder', 'f1')?.deleted).toBe(1);
+    transport.put(`pl1/dev/${OTHER}/paper/r1.json`, bundleOf('r1', [
+      ['paper', '_', v(1000), null, 0, paperData('Stale filed paper', null)],
+      ['folder_assignment', '_', v(1001), null, 0, { folder_id: 'f1' }],
+    ]));
+    expect((await syncOnce(transport)).pending).toBe(0);
+    expect(getPaper('r1')).toMatchObject({ folder_id: null });
+    expect(db.prepare("SELECT 1 FROM folders WHERE id='f1'").get()).toBeUndefined();
+  });
+
+  it('publishes local folder deletion and explicit unfiling without deleting paper content', async () => {
+    insertFolder('f1', '연구');
+    addLocalPaper('p1');
+    db.prepare("UPDATE papers SET folder_id='f1' WHERE id='p1'").run();
+    await syncOnce(transport);
+    db.prepare("DELETE FROM folders WHERE id='f1'").run();
+    await syncOnce(transport);
+    const bundle = JSON.parse(transport.get(`pl1/dev/${deviceId()}/paper/p1.json`)!.toString()) as Bundle;
+    expect(bundle.rows.find((r) => r[0] === 'folder_assignment')?.[5]).toEqual({ folder_id: null });
+    expect(bundle.rows.find((r) => r[0] === 'paper')?.[4]).toBe(0);
+    expect(getPaper('p1')).toBeDefined();
+    expect(db.prepare("SELECT content FROM artifacts WHERE paper_id='p1' AND kind='summary'").get()).toEqual({ content: '요약' });
+  });
+
+  it('preserves independently created case-insensitive duplicate folders and both assignments', async () => {
+    insertFolder('z-local', 'Research');
+    addLocalPaper('p1');
+    db.prepare("UPDATE papers SET folder_id='z-local' WHERE id='p1'").run();
+    remoteFolders([['folder', 'a-remote', v(1000), null, 0, folderData('research')]]);
+    transport.put(`pl1/dev/${OTHER}/paper/r1.json`, bundleOf('r1', [
+      ['paper', '_', v(1001), null, 0, paperData('Remote research', null)],
+      ['folder_assignment', '_', v(1002), null, 0, { folder_id: 'a-remote' }],
+    ]));
+    await syncOnce(transport);
+    expect(getPaper('p1')?.folder_id).toBe('z-local');
+    expect(getPaper('r1')?.folder_id).toBe('a-remote');
+    const folders = db.prepare('SELECT name, name_key FROM folders ORDER BY id').all();
+    expect(folders).toHaveLength(2);
+    expect(folders[0].name).toBe('research');
+    expect(folders[1].name).toMatch(/^Research \([0-9a-f]{16}\)$/);
+    expect(new Set(folders.map((f) => f.name_key)).size).toBe(2);
   });
 });

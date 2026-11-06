@@ -10,7 +10,7 @@ function row(overrides: Partial<CitationPaper['paper']> = {}, authors: CitationP
       openalex_id: null, pmid: null, pmcid: null, abstract: null, pdf_file: null,
       page_count: null, field: null, field_suggested: null, layout_version: 1,
       created_at: '2026-01-01', updated_at: '2026-01-01', last_opened_at: null,
-      starred: 0, read_status: 'unread',
+      starred: 0, read_status: 'unread', folder_id: null,
       ...overrides,
     },
   };

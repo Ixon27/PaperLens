@@ -14,7 +14,7 @@ app.route('/api', libraryExportRoutes);
 const request = (body: unknown) => app.request('/api/library/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 beforeEach(() => {
-  db.exec('DELETE FROM papers');
+  db.exec('DELETE FROM papers; DELETE FROM folders');
   const insert = db.prepare('INSERT INTO papers(id,title,authors,year,journal,doi,field,pdf_file,created_at,updated_at,last_opened_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)');
   insert.run('a', '=evil|`한글`\\\n다음', JSON.stringify([{ given: '길동', family: '홍' }]), 2026, '물리 & <학술지>', '10.1/example', 'physics', 'a.pdf', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', null);
   insert.run('b', '+SUM(1,2)', '[]', null, null, null, null, null, '2026-02-01T00:00:00Z', '2026-02-01T00:00:00Z', '2026-03-01T00:00:00Z');
@@ -91,4 +91,20 @@ it.each([
   expect(current).not.toContain('=evil');
   expect((await request({ format, ids: ['a', 'missing'] })).status).toBe(404);
   expect(db.prepare('SELECT * FROM papers ORDER BY id').all()).toEqual(before);
+});
+
+it('exports folder names safely in Markdown and XLSX and keeps unfiled papers', async () => {
+  db.prepare('INSERT INTO folders(id,name,name_key,created_at,updated_at) VALUES(?,?,?,?,?)')
+    .run('f1', '=연구|폴더', '=연구|폴더', '2026-01-01', '2026-01-01');
+  db.prepare("UPDATE papers SET folder_id='f1' WHERE id='a'").run();
+  const markdown = await (await request({ format: 'md' })).text();
+  expect(markdown).toContain('폴더');
+  expect(markdown).toContain('=연구&#124;폴더');
+  expect(markdown).toContain('미분류');
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await (await request({ format: 'xlsx', ids: ['a', 'b'] })).arrayBuffer());
+  const sheet = workbook.getWorksheet('논문 목록')!;
+  expect(sheet.getCell('L2').value).toBe('=연구|폴더');
+  expect(sheet.getCell('L2').type).toBe(ExcelJS.ValueType.String);
+  expect(sheet.getCell('L3').value).toBe('미분류');
 });

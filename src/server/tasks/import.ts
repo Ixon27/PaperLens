@@ -13,6 +13,7 @@ import * as crossref from '../services/crossref';
 import { getBuffer } from '../services/http';
 import * as openalex from '../services/openalex';
 import * as unpaywall from '../services/unpaywall';
+import { assignImportedPaper, folderInput, survivingFolderId } from '../folders';
 
 export type ImportInput = { kind: 'doi'; doi: string } | { kind: 'arxiv'; id: string } | { kind: 'openalex'; id: string };
 
@@ -74,14 +75,15 @@ interface NewPaper {
   pmcid?: string | null;
   abstract?: string | null;
   field?: FieldId | null;
+  folderId?: string | null;
 }
 
 function insertPaper(p: NewPaper): string {
   const id = nanoid(10);
   const t = now();
   db.prepare(
-    `INSERT INTO papers(id,title,authors,year,journal,volume,issue,pages,doi,arxiv_id,openalex_id,pmid,pmcid,abstract,field,created_at,updated_at)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO papers(id,title,authors,year,journal,volume,issue,pages,doi,arxiv_id,openalex_id,pmid,pmcid,abstract,field,folder_id,created_at,updated_at)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     id,
     p.title,
@@ -98,6 +100,7 @@ function insertPaper(p: NewPaper): string {
     p.pmcid ?? null,
     p.abstract ?? null,
     p.field ?? null,
+    survivingFolderId(p.folderId),
     t,
     t,
   );
@@ -145,7 +148,7 @@ export async function extractPaperPdf(paperId: string): Promise<void> {
 
 const relayouts = new Map<string, Promise<void>>();
 
-/** Only exact page/text matches can reuse offsets; repeated text also needs its original geometry. */
+/** Only exact page/text matches can reuse classification and offsets; repeats also need original geometry. */
 function upgradeBlockSpans(paperId: string, { blocks }: ExtractionResult): void {
   const stored = getBlocks(paperId);
   const keyOf = (block: { page: number; text: string }) => JSON.stringify([block.page, block.text]);
@@ -186,8 +189,8 @@ function upgradeBlockSpans(paperId: string, { blocks }: ExtractionResult): void 
 }
 
 /**
- * Upgrade old PDF layouts locally. Untranslated/forced papers replace their blocks; translated
- * papers retain every block and translation and only gain trustworthy text-layer spans.
+ * Upgrade old PDF layouts locally. Version-5+ layouts and papers with saved translations retain
+ * every block identity and saved text, gaining only trustworthy geometry and classification.
  * Never commits under an import or translation job, including one started during extraction.
  */
 export function ensureCurrentLayout(paperId: string, { force = false }: { force?: boolean } = {}): Promise<void> {
@@ -201,7 +204,7 @@ export function ensureCurrentLayout(paperId: string, { force = false }: { force?
         const current = getPaper(paperId);
         if (!current?.pdf_file || current.pdf_file !== paper.pdf_file || (!force && current.layout_version >= LAYOUT_VERSION)) return;
         if (activeJob(paperId, 'import') || activeJob(paperId, 'translation')) return;
-        if (!force && db.prepare('SELECT 1 FROM translations WHERE paper_id=? LIMIT 1').get(paperId)) {
+        if (!force && (current.layout_version >= 5 || db.prepare('SELECT 1 FROM translations WHERE paper_id=? LIMIT 1').get(paperId))) {
           tx(() => upgradeBlockSpans(paperId, extracted));
         } else {
           storeBlocks(paperId, extracted);
@@ -248,7 +251,8 @@ export function paperIdByOpenAlex(id: string | null | undefined): string | null 
 }
 
 
-function duplicateResult(paperId: string): ImportResult {
+function duplicateResult(paperId: string, folderId?: string | null): ImportResult {
+  assignImportedPaper(paperId, folderId);
   const job = activeJob(paperId, 'import');
   return { paperId, duplicate: true, ...(job ? { jobId: job.id } : {}) };
 }
@@ -361,31 +365,32 @@ export interface ImportResult {
 }
 
 /** Metadata is stored synchronously; PDF retrieval and extraction run in a job. */
-export async function importFromInput(raw: string, field: FieldId | null): Promise<ImportResult> {
+export async function importFromInput(raw: string, field: FieldId | null, folderId?: string | null): Promise<ImportResult> {
+  folderInput(folderId);
   const input = parseImportInput(raw);
   if (input.kind === 'openalex') {
     const existing = paperIdByOpenAlex(input.id);
-    if (existing) return duplicateResult(existing);
+    if (existing) return duplicateResult(existing, folderId);
     const work = await openalex.getById(input.id);
     if (!work) throw new HttpError(404, 'OpenAlex에서 논문을 찾지 못했습니다');
     const s = openalex.toSummary(work);
     if (!s.title) throw new HttpError(404, '논문 제목을 찾지 못했습니다');
     const duplicate = (s.doi && paperIdByDoi(s.doi)) || paperIdByOpenAlex(s.openalexId);
-    if (duplicate) return duplicateResult(duplicate);
-    const paperId = insertPaper({ title: s.title, authors: s.authors.map(splitName), year: s.year, journal: s.venue, abstract: s.abstract, doi: s.doi, openalex_id: s.openalexId, pmid: s.pmid, pmcid: s.pmcid, field });
+    if (duplicate) return duplicateResult(duplicate, folderId);
+    const paperId = insertPaper({ title: s.title, authors: s.authors.map(splitName), year: s.year, journal: s.venue, abstract: s.abstract, doi: s.doi, openalex_id: s.openalexId, pmid: s.pmid, pmcid: s.pmcid, field, folderId });
     const jobId = startJob(paperId, 'import', (ctx) => fetchOpenPdf(paperId, ctx, openAlexPdfUrls(work), s.doi, s.pmcid));
     return { paperId, jobId };
   }
   const doi = input.kind === 'doi' ? input.doi : `10.48550/arxiv.${input.id}`.toLowerCase();
   const existing = paperIdByDoi(doi);
-  if (existing) return duplicateResult(existing);
+  if (existing) return duplicateResult(existing, folderId);
 
   if (input.kind === 'doi') {
     const found = await metadataForDoi(doi);
     if (!found) throw new HttpError(404, 'Crossref·OpenAlex에서 DOI를 찾지 못했습니다');
     const duplicate = paperIdByDoi(doi) ?? paperIdByOpenAlex(found.meta.openalex_id);
-    if (duplicate) return duplicateResult(duplicate);
-    const paperId = insertPaper({ ...found.meta, field });
+    if (duplicate) return duplicateResult(duplicate, folderId);
+    const paperId = insertPaper({ ...found.meta, field, folderId });
     const jobId = startJob(paperId, 'import', (ctx) => fetchOpenPdf(paperId, ctx, found.pdfUrls, doi, found.meta.pmcid ?? null));
     return { paperId, jobId };
   }
@@ -411,14 +416,15 @@ export async function importFromInput(raw: string, field: FieldId | null): Promi
     meta = { ...ax, year: arxivYear(id) };
   }
   const duplicate = paperIdByDoi(doi) ?? paperIdByOpenAlex(meta.openalex_id);
-  if (duplicate) return duplicateResult(duplicate);
-  const paperId = insertPaper({ ...meta, doi, arxiv_id: id, field });
+  if (duplicate) return duplicateResult(duplicate, folderId);
+  const paperId = insertPaper({ ...meta, doi, arxiv_id: id, field, folderId });
   const jobId = startJob(paperId, 'import', (ctx) => fetchOpenPdf(paperId, ctx, [`https://arxiv.org/pdf/${id}`], doi, null));
   return { paperId, jobId };
 }
 
 /** One uploaded PDF: detect DOI or arXiv ID on pages 1–2, then extract in a job. */
-export async function importUpload(fileName: string, data: Buffer, field: FieldId | null): Promise<ImportResult & { name: string }> {
+export async function importUpload(fileName: string, data: Buffer, field: FieldId | null, folderId?: string | null): Promise<ImportResult & { name: string }> {
+  folderInput(folderId);
   if (data.subarray(0, 4).toString('latin1') !== '%PDF') throw new HttpError(400, `PDF 파일이 아닙니다: ${fileName}`);
   const tmp = join(PATHS.tmp, `upload-${nanoid()}.pdf`);
   writeFileSync(tmp, data);
@@ -432,10 +438,10 @@ export async function importUpload(fileName: string, data: Buffer, field: FieldI
     const dup = doi ? paperIdByDoi(doi) : null;
     if (dup) {
       rmSync(tmp, { force: true });
-      return { name: fileName, paperId: dup, duplicate: true };
+      return { name: fileName, ...duplicateResult(dup, folderId) };
     }
     // Reserve the DOI before the asynchronous enrichment job starts, so overlapping uploads dedupe.
-    const paperId = insertPaper({ title, doi, arxiv_id: arxivId, field });
+    const paperId = insertPaper({ title, doi, arxiv_id: arxivId, field, folderId });
     renameSync(tmp, pdfPath(paperId));
     const jobId = startJob(paperId, 'import', async (ctx) => {
       if (doi) {

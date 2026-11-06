@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, Route, Switch } from 'wouter';
-import { Moon, Settings as SettingsIcon, Sun } from 'lucide-react';
+import { Link, Route, Switch, useLocation } from 'wouter';
+import { BookOpen, ChevronRight, Moon, PanelLeft, Search, Settings as SettingsIcon, Sun } from 'lucide-react';
 import { api } from './api';
 import type { Settings, UpdateStatus } from './types';
 import { AiPicker } from './components/AiPicker';
@@ -23,7 +23,12 @@ function ThemeToggle() {
   );
 }
 
-function Header() {
+function Header({ sidebarOpen, onToggleSidebar }: { sidebarOpen: boolean; onToggleSidebar(): void }) {
+  const [location, navigate] = useLocation();
+  const focusSearch = () => {
+    if (location !== '/') navigate('/');
+    requestAnimationFrame(() => document.getElementById('library-search')?.focus());
+  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   useEffect(() => window.paperReaderDesktop?.onOpenSettings(() => setSettingsOpen(true)), []);
   // The macOS app menu owns ⌘,; the Windows window has no menu bar, so the page handles Ctrl+,.
@@ -39,21 +44,47 @@ function Header() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   return (
-    <header className="app-header app-drag relative z-40 flex h-12 shrink-0 items-center gap-2 border-b border-line bg-surface/85 px-3 backdrop-blur-md">
-      <Link href="/" className="rounded-lg py-1 pr-2 text-[15px] font-semibold tracking-tight text-fg">
-        PaperLens
-      </Link>
-      <div className="flex-1" />
-      <AiPicker />
-      <ThemeToggle />
-      <button
-        className={iconBtnCls}
-        aria-label="설정"
-        title={window.paperReaderDesktop ? `설정 (${SETTINGS_SHORTCUT})` : '설정'}
-        onClick={() => setSettingsOpen(true)}
-      >
-        <SettingsIcon size={16} />
-      </button>
+    <header className="paper-chrome ghost-titlebar app-drag">
+      <div className={`paper-sidebar-top ghost-titlebar-side ${window.paperReaderDesktop && isMac ? 'has-traffic-lights' : ''}`}>
+        <button
+          className={iconBtnCls}
+          aria-label="라이브러리 사이드바"
+          aria-expanded={sidebarOpen}
+          onClick={onToggleSidebar}
+          title="사이드바 표시 전환"
+        >
+          <PanelLeft size={16} />
+        </button>
+        <div className="flex-1" />
+        <button className={iconBtnCls} aria-label="논문 검색" title="논문 검색" onClick={focusSearch}>
+          <Search size={16} />
+        </button>
+      </div>
+      <div className="paper-main-header ghost-titlebar-main">
+        <Link href="/" className="paper-breadcrumb">
+          <BookOpen size={15} />
+          <span>라이브러리</span>
+        </Link>
+        {location.startsWith('/paper/') && (
+          <>
+            <ChevronRight size={13} className="text-fg-dim" />
+            <span className="paper-current-page">논문 작업 공간</span>
+          </>
+        )}
+        <div className="flex-1" />
+        <div className="paper-header-ai">
+          <AiPicker />
+        </div>
+        <ThemeToggle />
+        <button
+          className={iconBtnCls}
+          aria-label="설정"
+          title={window.paperReaderDesktop ? `설정 (${SETTINGS_SHORTCUT})` : '설정'}
+          onClick={() => setSettingsOpen(true)}
+        >
+          <SettingsIcon size={16} />
+        </button>
+      </div>
       {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
     </header>
   );
@@ -94,6 +125,7 @@ function UpdateNotice() {
 
 export function App() {
   const [setupOpen, setSetupOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [setupError, setSetupError] = useState<string | null>(null);
   const loadSetup = useCallback(async () => {
     if (!window.paperReaderDesktop) return;
@@ -105,19 +137,26 @@ export function App() {
       setSetupError(error instanceof Error ? error.message : '초기 설정을 확인하지 못했습니다');
     }
   }, []);
-  useEffect(() => { void loadSetup(); }, [loadSetup]);
+  useEffect(() => {
+    void loadSetup();
+  }, [loadSetup]);
   return (
     <ToastProvider>
-      <div className="flex h-full flex-col">
-        <Header />
+      <div className={`paper-app ghost-shell flex h-full flex-col ${sidebarOpen ? '' : 'sidebar-hidden'}`}>
+        <Header sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((open) => !open)} />
         <UpdateNotice />
-        {setupError && <div role="alert" className="border-b border-danger/30 bg-danger-soft px-4 py-2 text-[13px] text-danger">
-          {setupError} <button className="ml-2 underline" onClick={() => void loadSetup()}>다시 시도</button>
-        </div>}
+        {setupError && (
+          <div role="alert" className="border-b border-danger/30 bg-danger-soft px-4 py-2 text-[13px] text-danger">
+            {setupError}{' '}
+            <button className="ml-2 underline" onClick={() => void loadSetup()}>
+              다시 시도
+            </button>
+          </div>
+        )}
         <main className="min-h-0 flex-1">
           <Switch>
             <Route path="/">
-              <Library />
+              <Library sidebarOpen={sidebarOpen} />
             </Route>
             <Route path="/paper/:id">{(params) => <Workspace key={params.id} id={params.id} />}</Route>
             <Route>
