@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { FIELDS, FIELD_LABELS, isFieldId, type FieldId } from '../../shared/fields';
 import { api } from '../api';
-import { btnCls, Dialog, Field, inputCls, primaryBtnCls } from '../components/Dialog';
+import { btnCls, Dialog, Field, inputCls, primaryBtnCls, smallBtnCls } from '../components/Dialog';
 import { JobBar } from '../components/JobBar';
 import { useToast } from '../components/Toast';
 import { ComparisonDialog } from '../components/ComparisonDialog';
@@ -541,7 +541,7 @@ export function Library({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
                   />
                   <select
                     aria-label="분야"
-                    className="h-10 rounded-lg border border-line-strong bg-surface px-2.5 text-[13px] text-fg"
+                    className={`${inputCls} w-auto`}
                     value={importField}
                     onChange={(e) => {
                       const value = e.target.value;
@@ -557,12 +557,12 @@ export function Library({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
                       </option>
                     ))}
                   </select>
-                  <button className={`${btnCls} h-10`} onClick={() => fileRef.current?.click()}>
+                  <button className={btnCls} onClick={() => fileRef.current?.click()}>
                     <FileUp size={15} />
                     PDF 선택
                   </button>
                   <button
-                    className={`${primaryBtnCls} h-10 min-w-[84px]`}
+                    className={`${primaryBtnCls} min-w-[84px]`}
                     aria-label="가져오기"
                     disabled={!input.trim() || importing}
                     onClick={() => void doImport()}
@@ -591,7 +591,7 @@ export function Library({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
               <div>
                 <h2 className="text-[17px] font-semibold text-fg">{filterLabel(filter)}</h2>
                 {papers && (
-                  <p className="mt-0.5 text-[12.5px] text-fg-muted">
+                  <p className="mt-0.5 text-[12.5px] tabular-nums text-fg-muted">
                     {visible.length}편{debouncedQ ? ` · “${debouncedQ}” 검색 결과` : ''}
                   </p>
                 )}
@@ -599,7 +599,7 @@ export function Library({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   aria-label="읽기 상태 필터"
-                  className="h-9 rounded-lg border border-line bg-surface px-2 text-[13px] text-fg"
+                  className={`${inputCls} w-auto`}
                   value={organization}
                   onChange={(e) => setOrganization(e.target.value as typeof organization)}
                 >
@@ -614,7 +614,7 @@ export function Library({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
                 </button>
                 <select
                   aria-label="분류"
-                  className="h-9 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-fg lg:hidden"
+                  className={`${inputCls} w-auto lg:hidden`}
                   value={filter}
                   onChange={(e) => {
                     const v = e.target.value;
@@ -633,7 +633,7 @@ export function Library({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
                   <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-fg-dim" />
                   <input
                     id="library-search"
-                    className="library-search-input h-9 w-64 rounded-lg border border-line bg-surface pr-3 pl-9 text-[13px] text-fg outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-fg-dim focus:border-focus focus:ring-2 focus:ring-focus/25"
+                    className={`${inputCls} library-search-input w-64 pl-9`}
                     placeholder="제목·저자·본문·메모 검색"
                     aria-label="라이브러리 검색"
                     value={q}
@@ -642,7 +642,7 @@ export function Library({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
                 </div>
                 <select
                   aria-label="정렬"
-                  className="h-9 rounded-lg border border-line bg-surface px-2.5 text-[13px] text-fg"
+                  className={`${inputCls} w-auto`}
                   value={sort}
                   onChange={(e) => chooseSort(e.target.value)}
                 >
@@ -655,9 +655,9 @@ export function Library({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
                 <button className={btnCls} disabled={!allPapers.length} onClick={() => setExportOpen(true)}>
                   목록 내보내기
                 </button>
-                <span className="text-[12px] text-fg-muted">비교할 논문 2~4편을 선택하세요.</span>
               </div>
             </div>
+            <p className="library-list-hint">비교할 논문 2~4편을 선택하세요.</p>
             {visible.length > 0 && (
               <div className="mb-3 flex flex-wrap items-center gap-3 text-[13px] text-fg-muted">
                 <label className="flex items-center gap-2">
@@ -726,7 +726,7 @@ export function Library({ sidebarOpen = true }: { sidebarOpen?: boolean }) {
               <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-card">
                 <div
                   aria-hidden="true"
-                  className={`hidden border-b border-line bg-sunken/60 px-4 py-2.5 text-[12px] font-medium text-fg-muted ${ROW_GRID}`}
+                  className={`library-table-head hidden border-b border-line px-3 py-2 ${ROW_GRID}`}
                 >
                   <span>논문</span>
                   <span>분야</span>
@@ -971,7 +971,7 @@ function PaperRow({
           <Link href={`/paper/${p.id}`} className="flex min-w-0 flex-1 items-start gap-3 rounded-lg">
             <span
               className={`mt-0.5 grid h-11 w-9 shrink-0 place-items-center rounded-md border ${
-                p.hasPdf ? 'border-line bg-sunken text-accent' : 'border-warning/30 bg-warning-soft text-warning'
+                p.hasPdf ? 'border-line bg-surface text-accent' : 'border-warning/30 bg-warning-soft text-warning'
               }`}
             >
               <FileText size={17} />
@@ -992,16 +992,16 @@ function PaperRow({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pl-12 xl:contents">
-          <div>{p.field ? <Badge tone="accent">{FIELD_LABELS[p.field]}</Badge> : <Badge tone="warning">분야 확인 필요</Badge>}</div>
+          <div>{p.field ? <span className="text-[12.5px] text-fg-muted">{FIELD_LABELS[p.field]}</span> : <Badge tone="warning">분야 확인 필요</Badge>}</div>
           <Progress p={p} running={running} />
-          <div className="min-w-0 whitespace-nowrap text-[12.5px] text-fg-muted">
+          <div className="min-w-0 whitespace-nowrap text-[12.5px] tabular-nums text-fg-muted">
             <span className="xl:hidden">최근 열람 · </span>
             {openedLabel(p.lastOpenedAt)}
           </div>
-          <div className="flex items-center gap-1 xl:justify-end">
+          <div className="library-row-controls flex items-center gap-1 xl:justify-end">
             <select
               aria-label={`${p.title} 읽기 상태`}
-              className="h-8 max-w-24 rounded border border-line bg-surface text-[12px] text-fg"
+              className="pr-input library-row-select max-w-28"
               value={p.readStatus}
               disabled={updating}
               onChange={(e) => void updateOrganization({ readStatus: e.target.value as PaperDto['readStatus'] })}
@@ -1012,7 +1012,7 @@ function PaperRow({
             </select>
             <select
               aria-label={`${p.title} 폴더 이동`}
-              className="library-row-folder"
+              className="pr-input library-row-select library-row-folder"
               value={p.folderId ?? ''}
               onChange={(e) => onMove(e.target.value || null)}
             >
@@ -1024,7 +1024,7 @@ function PaperRow({
               ))}
             </select>
             <button
-              className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-line px-2.5 text-[12.5px] text-fg-muted transition-[background-color,color,transform] duration-150 hover:bg-hover hover:text-fg active:scale-[0.97]"
+              className={`${smallBtnCls} library-row-rename shrink-0`}
               aria-label={`${p.title} 이름 변경`}
               onClick={() => setRenaming(true)}
             >
@@ -1032,7 +1032,7 @@ function PaperRow({
               이름 변경
             </button>
             <button
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-fg-dim opacity-0 transition-[opacity,background-color,color,transform] duration-150 group-hover:opacity-100 hover:bg-danger-soft hover:text-danger focus-visible:opacity-100 active:scale-[0.95]"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-fg-dim opacity-0 transition-[opacity,background-color,color,transform] duration-150 group-hover:opacity-100 hover:bg-danger-soft hover:text-danger focus-visible:opacity-100 active:scale-[0.95]"
               aria-label="삭제"
               title="삭제"
               onClick={onDelete}

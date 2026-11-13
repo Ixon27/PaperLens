@@ -1,0 +1,121 @@
+/*
+ * Form controls and data tables, after ghostex.dev's field/button recipe.
+ * Imported into the components layer, so any utility (w-24, min-h-40, font-mono) overrides these.
+ */
+.pr-input {
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid var(--pr-line-strong);
+  border-radius: 8px;
+  background: var(--pr-field);
+  padding: 4px 10px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--pr-fg);
+  outline: none;
+  transition:
+    border-color 150ms ease-out,
+    box-shadow 150ms ease-out,
+    background-color 150ms ease-out;
+}
+.pr-input::placeholder {
+  color: var(--pr-fg-dim);
+}
+.pr-input:hover:not(:disabled, :focus, :focus-within) {
+  border-color: color-mix(in srgb, var(--pr-fg) 24%, transparent);
+}
+.pr-input:focus,
+.pr-input:focus-within {
+  border-color: color-mix(in srgb, var(--pr-accent) 62%, transparent);
+  background: var(--pr-field-focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pr-accent) 13%, transparent);
+}
+.pr-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+select.pr-input {
+  appearance: none;
+  padding-right: 28px;
+  background-image: var(--pr-chevron);
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 10px 6px;
+  text-overflow: ellipsis;
+}
+textarea.pr-input {
+  padding: 7px 10px;
+  line-height: 1.55;
+}
+input[type='number'].pr-input {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Segmented choice (two to four exclusive options); buttons carry aria-pressed. */
+.pr-seg {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  flex: none;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--pr-fg) 5%, transparent);
+  box-shadow: inset 0 0 0 1px var(--pr-line);
+}
+.pr-seg button {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 7px;
+  color: var(--pr-fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    color 150ms ease-out,
+    background-color 150ms ease-out,
+    box-shadow 150ms ease-out;
+}
+.pr-seg button:hover {
+  color: var(--pr-fg);
+}
+.pr-seg button[aria-pressed='true'] {
+  background: var(--pr-field-focus);
+  box-shadow:
+    0 1px 2px #1828601f,
+    0 3px 8px -3px #1828602e;
+  color: var(--pr-fg);
+}
+
+/* Data table: quiet header, hairline rows, aligned figures. */
+.pr-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.pr-table th {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--pr-line-strong);
+  color: var(--pr-fg-muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.pr-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--pr-line);
+  vertical-align: middle;
+}
+.pr-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.pr-table :is(th, td).num {
+  text-align: right;
+}
+.pr-table :is(th, td):first-child {
+  padding-left: 0;
+}
+.pr-table :is(th, td):last-child {
+  padding-right: 0;
+}

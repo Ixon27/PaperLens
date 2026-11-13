@@ -31,7 +31,7 @@ export function CurveReadout({ state, xLabel, yLabel }: { state: Readout; xLabel
     <label className="flex flex-wrap items-center gap-2">
       <span>{xLabel}</span>
       <input aria-label={`${xLabel} 탐색`} className="min-w-24 flex-1" type="range" min={0} max={1000} step={1} disabled={!hasPoints || !(span > 0)} value={span > 0 ? Math.max(0, Math.min(1000, (x - min) / span * 1000)) : 0} onChange={event => setChosen(min + span * Number(event.target.value) / 1000)} />
-      <input aria-label={`${xLabel} 값`} className="w-24 rounded border border-line bg-surface px-1 py-0.5 text-fg" type="number" step="any" min={min} max={max} disabled={!hasPoints} value={x} onChange={event => { if (event.target.value !== '' && Number.isFinite(event.target.valueAsNumber)) setChosen(event.target.valueAsNumber); }} />
+      <input aria-label={`${xLabel} 값`} className="pr-input w-24 px-1.5" type="number" step="any" min={min} max={max} disabled={!hasPoints} value={x} onChange={event => { if (event.target.value !== '' && Number.isFinite(event.target.valueAsNumber)) setChosen(event.target.valueAsNumber); }} />
     </label>
     <div className="flex flex-wrap gap-x-4 gap-y-1" aria-live="polite" aria-atomic="true">
       {readings.length ? readings.map(({ name, reading }) => <span key={name}><strong>{name}</strong> · {yLabel}: {reading ? reading.kind === 'exact' ? reading.values.map(String).join(', ') + ' (데이터 지점)' : `≈ ${formatNumber(reading.value)} (보간)` : '값 없음'}</span>) : <span className="text-fg-muted">표시할 시리즈를 선택하세요.</span>}

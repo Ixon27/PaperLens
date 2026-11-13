@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import './controls.css' layer(components);
 
 /* Semantic experiment/reading status colors, separate from the reference materials. */
 :root {color-scheme:light;--pr-success:#2d8f64;--pr-success-soft:#2d8f641a;--pr-warning:#a97a14;--pr-warning-soft:#a97a141a;--pr-danger:#be5966;--pr-danger-soft:#be59661a;--pr-effort:#a8812f;--pr-effort-max:#ed682c;--pr-scrim:#0c101c29;}
@@ -51,6 +52,10 @@ body,
 }
 
 @layer base {
+  input:is([type='checkbox'], [type='radio']) {
+    accent-color: var(--pr-accent);
+  }
+
   body {
     @apply bg-canvas text-fg antialiased;
     font-size: 13px;

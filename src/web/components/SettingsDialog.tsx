@@ -145,7 +145,7 @@ export function SettingsDialog({ onClose }: { onClose(): void }) {
             <SettingsRow
               label="연락처 이메일"
               labelFor="settings-email"
-              aside={<span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] text-fg-dim">선택</span>}
+              aside={<span className="text-[11px] text-fg-dim">선택</span>}
               description="입력하면 무료로 공개된 PDF를 더 잘 찾아옵니다. Crossref·OpenAlex·Unpaywall에 연락처로만 전달됩니다."
             >
               <input

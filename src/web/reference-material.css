@@ -30,6 +30,9 @@
   --glass-alpha: 0.5;
   --glass-edge: inset 0 0 0 1px #fff9, inset 0 1.5px 0 #fffffff2, inset 0 -1px 0 #768cd22e;
   --glass-shadow: 0 1px 2px #1828600f, 0 26px 50px -22px #1828604d, 0 70px 140px -40px #1828604d;
+  --pr-field: #ffffffc7;
+  --pr-field-focus: #fff;
+  --pr-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%23101626' stroke-opacity='.55' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
 }
 :root[data-theme='dark'] {
   --pr-canvas: transparent;
@@ -55,6 +58,9 @@
   --glass-shadow: 0 40px 120px -20px #000000bf, 0 0 0 1px #0006;
   --pr-shadow-card: 0 1px 2px #00000040;
   --pr-shadow-pop: 0 24px 60px -12px #0009, 0 0 0 1px #ffffff0f;
+  --pr-field: #ffffff0d;
+  --pr-field-focus: #ffffff14;
+  --pr-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6' fill='none' stroke='%23eef0f5' stroke-opacity='.6' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
 }
 body {
   font-family: Geist, 'SF Pro Text', 'Apple SD Gothic Neo', 'Segoe UI', sans-serif;

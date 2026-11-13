@@ -61,7 +61,7 @@ function HighlightItem({ h }: { h: HighlightDto }) {
         )}
       </button>
       <textarea
-        className="mt-1.5 w-full resize-y rounded border border-transparent bg-sunken px-2 py-1 text-[12.5px] text-fg outline-none focus:border-line-strong focus:bg-surface"
+        className="pr-input mt-1.5 resize-y text-[12.5px]"
         rows={note ? 2 : 1}
         placeholder="메모 추가…"
         value={note}

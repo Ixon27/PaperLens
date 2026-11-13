@@ -12,7 +12,7 @@ export function CompareWidget({ spec }: { spec: Compare }) {
   return (
     <div className="space-y-4 text-[12.5px]">
       <label className="flex items-center gap-2">기준 조건
-        <select className="rounded border border-line bg-surface p-1" value={baseline} onChange={(e) => setBaseline(Number(e.target.value))}>
+        <select className="pr-input w-auto min-h-[26px] py-0.5" value={baseline} onChange={(e) => setBaseline(Number(e.target.value))}>
           {spec.conditions.map((condition, i) => <option key={i} value={i}>{condition}</option>)}
         </select>
       </label>

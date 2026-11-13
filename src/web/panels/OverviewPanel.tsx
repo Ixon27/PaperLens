@@ -663,7 +663,7 @@ function DiscussionSection({ talk, open, onOpenChange }: { talk: Discussion; ope
           <MessageCircle size={14} aria-hidden className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-fg-muted" />
           <select
             aria-label="토론 선택"
-            className="h-9 w-full appearance-none truncate rounded-lg border border-line bg-surface pr-8 pl-8 text-[13px] text-fg disabled:opacity-60"
+            className="pr-input truncate pl-8"
             value={currentId ?? ''}
             disabled={chat.busy || !threads?.length}
             onChange={(e) => talk.selectThread(e.target.value)}

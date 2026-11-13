@@ -285,7 +285,7 @@ export function PdfPane() {
         </button>
         <div className="mx-2 flex items-center gap-1">
           <input
-            className="h-7 w-10 rounded-md border border-line-strong bg-sunken px-1 text-center font-mono tabular-nums text-fg outline-none transition-[border-color] duration-150 placeholder:text-fg-dim focus:border-focus"
+            className="pr-input w-11 px-1 text-center font-mono tabular-nums"
             value={pageInput}
             placeholder={String(currentPage)}
             onChange={(e) => setPageInput(e.target.value.replace(/\D/g, ''))}

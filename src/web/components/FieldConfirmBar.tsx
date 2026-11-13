@@ -84,7 +84,7 @@ export function FieldConfirmBar() {
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-line bg-accent-soft/40 px-3 py-2 text-[12.5px] text-fg">
       <span className="min-w-0 flex-1">{text}</span>
-      <select aria-label="분야 선택" className="h-8 rounded-lg border border-line bg-surface px-2 text-[12.5px] text-fg" value={choice} onChange={(e) => setChoice(e.target.value as FieldId)}>
+      <select aria-label="분야 선택" className="pr-input w-auto" value={choice} onChange={(e) => setChoice(e.target.value as FieldId)}>
         <option value="" disabled>분야 선택</option>
         {FIELDS.map((field) => <option key={field} value={field}>{FIELD_LABELS[field]}</option>)}
       </select>

@@ -4,7 +4,7 @@ import { api } from '../api';
 import { ChatBubble } from '../components/ChatBubbles';
 import { ChatComposer } from '../components/ChatComposer';
 import { ChatModelPicker } from '../components/ChatModelPicker';
-import { smallBtnCls, smallDangerBtnCls, smallIconBtnCls } from '../components/Dialog';
+import { smallBtnCls, smallIconBtnCls, solidDangerBtnCls } from '../components/Dialog';
 import { Spinner } from '../components/JobBar';
 import { Markdown } from '../components/Markdown';
 import { useToast } from '../components/Toast';
@@ -295,7 +295,7 @@ export function ExplainCard({
             <button className={smallBtnCls} onClick={() => setConfirming(false)}>
               취소
             </button>
-            <button className={smallDangerBtnCls} onClick={() => void remove()}>
+            <button className={solidDangerBtnCls} onClick={() => void remove()}>
               삭제
             </button>
           </div>

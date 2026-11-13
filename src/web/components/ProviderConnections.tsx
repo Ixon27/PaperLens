@@ -77,7 +77,7 @@ function ProviderRow({ id, name, setup, auth, desktop }: { id: Engine; name: str
         {status?.operation?.state === 'success' && status.auth !== 'connected' && <p role="status" className="text-[12px] text-fg-muted">로그인 완료 여부를 확인할 수 없습니다. 다시 확인하거나 연결을 다시 시도하세요.</p>}
         {id === 'claude' && running && status?.operation?.codeNeeded && <div className="space-y-2">
           <p className="text-[12px] text-fg-muted">브라우저가 로그인 코드를 보여준 경우에만 여기에 붙여 넣으세요. 브라우저가 자동으로 완료하면 비워 두세요.</p>
-          <div className="flex gap-2"><input ref={codeInput} type="password" autoComplete="off" aria-label="브라우저 로그인 코드" className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 text-fg" /><button className={btnCls} disabled={busy} onClick={() => void sendCode()}>코드 전달</button></div>
+          <div className="flex gap-2"><input ref={codeInput} type="password" autoComplete="off" aria-label="브라우저 로그인 코드" className="pr-input min-w-0 flex-1" /><button className={btnCls} disabled={busy} onClick={() => void sendCode()}>코드 전달</button></div>
         </div>}
         {error && <p role="alert" className="text-[12px] text-danger">{error}</p>}
       </div>}

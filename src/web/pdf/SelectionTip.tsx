@@ -216,7 +216,7 @@ export function SelectionTip() {
         <div className="w-[380px] p-1.5">
           <input
             autoFocus
-            className="w-full rounded-md border border-line-strong bg-sunken px-2 py-1.5 text-[13px] text-fg outline-none transition-[border-color] duration-150 placeholder:text-fg-dim focus:border-focus"
+            className="pr-input"
             placeholder="이 부분에 대해 질문… (Enter)"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
@@ -231,7 +231,7 @@ export function SelectionTip() {
         <div className="w-[340px] p-1.5">
           <textarea
             autoFocus
-            className="h-20 w-full resize-none rounded-md border border-line-strong bg-sunken px-2 py-1.5 text-[13px] text-fg outline-none transition-[border-color] duration-150 placeholder:text-fg-dim focus:border-focus"
+            className="pr-input h-20 resize-none"
             placeholder="메모"
             value={note}
             onChange={(e) => setNote(e.target.value)}

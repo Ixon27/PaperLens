@@ -13,7 +13,7 @@ function useSelection(items: string[]) {
   return { active, toggle };
 }
 const controls = 'flex flex-wrap items-center gap-3';
-const selectClass = 'rounded border border-line bg-surface px-2 py-1 text-xs text-fg';
+const selectClass = 'pr-input w-auto min-h-[26px] py-0.5 text-xs';
 
 
 export function LineWidget({ spec }: { spec: Spec<'line'> }) {
