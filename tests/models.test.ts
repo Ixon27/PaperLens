@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { appendModels, parseCliVersion } from '../src/server/llm/models';
 import type { ModelChoice } from '../src/shared/models';
-import { catalogModel, preferredEffort, resolveEffort } from '../src/shared/models';
+import { catalogModel, cliUpdateAvailable, preferredEffort, resolveEffort } from '../src/shared/models';
 
 it('keeps Claude effort levels only for models that support effort', () => {
   const models: ModelChoice[] = [];
@@ -72,4 +72,15 @@ it('exposes version tokens without account metadata or raw CLI diagnostics', () 
   expect(parseCliVersion('codex-cli 1.2.3\\nprivate@example.com token=secret')).toBe('1.2.3');
   expect(parseCliVersion('2.1.5 (Claude Code)')).toBe('2.1.5');
   expect(parseCliVersion('private@example.com token=secret')).toBeNull();
+});
+
+it('flags a CLI update only when the published release is numerically newer', () => {
+  expect(cliUpdateAvailable('0.164.0', '0.172.0')).toBe(true);
+  expect(cliUpdateAvailable('0.99.0', '0.172.0')).toBe(true);
+  expect(cliUpdateAvailable('2.1.306', '2.1.332')).toBe(true);
+  expect(cliUpdateAvailable('2.1.332', '2.1.332')).toBe(false);
+  expect(cliUpdateAvailable('2.2.0', '2.1.332')).toBe(false);
+  expect(cliUpdateAvailable('2.1.306', null)).toBe(false);
+  expect(cliUpdateAvailable(null, '2.1.332')).toBe(false);
+  expect(cliUpdateAvailable('2.1.306-beta.1', '2.1.332')).toBe(false);
 });

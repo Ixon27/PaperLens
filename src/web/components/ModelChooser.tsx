@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check } from 'lucide-react';
 import type { EngineId, ModelCatalog, ModelChoice } from '../../shared/models';
-import { catalogModel, resolveEffort } from '../../shared/models';
+import { catalogModel, cliUpdateAvailable, resolveEffort } from '../../shared/models';
 import { effortLabel, engineLabel } from '../labels';
 
 export const ENGINES: EngineId[] = ['claude', 'codex'];
@@ -245,6 +245,9 @@ export function ModelList({
       {diagnostics && <p className="mb-1.5 px-1 text-[11px] text-fg-dim">
         CLI {diagnostics.version ?? '버전 확인 불가'} · {diagnostics.source === 'path' ? 'PATH 우선' : diagnostics.source === 'install-dir' ? '설치 디렉터리' : diagnostics.source === 'fallback' ? 'GUI 실행 경로' : '경로 없음'}
         {diagnostics.path && <span className="block break-all select-text">{diagnostics.path}</span>}
+      </p>}
+      {diagnostics && cliUpdateAvailable(diagnostics.version, diagnostics.latest) && <p role="status" className="mb-1.5 px-1 text-[12px] text-warning">
+        {engineLabel(engine)} CLI {diagnostics.latest} 업데이트가 있습니다. 최신 모델은 업데이트해야 목록에 보일 수 있습니다. 터미널에서 <code className="select-text">{engine} update</code> 실행 후 새로고침하세요.
       </p>}
       <div role="radiogroup" aria-label={`${label} 모델`} className="max-h-[240px] overflow-y-auto rounded-lg border border-line bg-surface p-1">
         {loading

@@ -14,8 +14,8 @@ export interface ModelChoice {
 export interface EngineModels {
   models: ModelChoice[];
   error: string | null;
-  /** Local executable diagnostics only; never account or authentication output. */
-  cli?: { path: string | null; version: string | null; source: 'path' | 'install-dir' | 'fallback' | null };
+  /** Local executable diagnostics only; never account or authentication output. `latest`: newest published release, null when unknown. */
+  cli?: { path: string | null; version: string | null; latest?: string | null; source: 'path' | 'install-dir' | 'fallback' | null };
 }
 
 export interface ModelCatalog {
@@ -54,4 +54,14 @@ export function resolveEffort(preferred: string, model?: ModelChoice): string {
   if (!model) return '';
   if (preferred && preferred !== 'auto' && model.efforts.includes(preferred)) return preferred;
   return model.defaultEffort && model.defaultEffort !== 'auto' && model.efforts.includes(model.defaultEffort) ? model.defaultEffort : '';
+}
+
+/** True only when both are plain x.y.z and the published release is newer; unknown or pre-release versions never warn. */
+export function cliUpdateAvailable(current: string | null | undefined, latest: string | null | undefined): boolean {
+  const parse = (v: string | null | undefined) => /^(\d+)\.(\d+)\.(\d+)$/.exec(v ?? '')?.slice(1).map(Number);
+  const have = parse(current);
+  const newest = parse(latest);
+  if (!have || !newest) return false;
+  for (let i = 0; i < 3; i++) if (have[i] !== newest[i]) return newest[i] > have[i];
+  return false;
 }

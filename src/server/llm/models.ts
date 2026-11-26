@@ -186,9 +186,33 @@ export function invalidateModelCatalog(): void {
   pending = null;
 }
 
+const NPM_PACKAGE: Record<Engine, string> = { claude: '@anthropic-ai%2Fclaude-code', codex: '@openai%2Fcodex' };
+const latestReleases = new Map<Engine, { at: number; value: Promise<string | null> }>();
+
+/** Newest published CLI release from the npm registry: public package metadata, nothing about the user is sent. Failures are retried next time. */
+function latestCliVersion(engine: Engine): Promise<string | null> {
+  const cached = latestReleases.get(engine);
+  if (cached && Date.now() - cached.at < 6 * 60 * 60_000) return cached.value;
+  const value: Promise<string | null> = fetch(`https://registry.npmjs.org/${NPM_PACKAGE[engine]}/latest`, { signal: AbortSignal.any([AbortSignal.timeout(5_000), shutdown.signal]) })
+    .then(response => response.ok ? response.json() : null)
+    .then((body: { version?: unknown } | null) => typeof body?.version === 'string' ? parseCliVersion(body.version) : null)
+    .catch(() => null)
+    .then(version => {
+      if (version === null && latestReleases.get(engine)?.value === value) latestReleases.delete(engine);
+      return version;
+    });
+  latestReleases.set(engine, { at: Date.now(), value });
+  return value;
+}
+
+async function withLatestRelease(engine: Engine): Promise<EngineModels> {
+  const [models, latest] = await Promise.all([getEngineModels(engine, BIN[engine], true), latestCliVersion(engine)]);
+  return models.cli?.version ? { ...models, cli: { ...models.cli, latest } } : models;
+}
+
 /** Share overlapping reads only; reopening settings or refreshing asks the CLIs again. */
 export function getModelCatalog(): Promise<ModelCatalog> {
-  const request: Promise<ModelCatalog> = pending ??= Promise.all([getEngineModels('claude', BIN.claude, true), getEngineModels('codex', BIN.codex, true)])
+  const request: Promise<ModelCatalog> = pending ??= Promise.all([withLatestRelease('claude'), withLatestRelease('codex')])
     .then(([claude, codex]) => ({ claude, codex }))
     .finally(() => { if (pending === request) pending = null; });
   return request;
